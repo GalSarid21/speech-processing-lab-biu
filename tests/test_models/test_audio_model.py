@@ -1,5 +1,3 @@
-from unittest.mock import MagicMock, patch
-
 import pytest
 from assertpy import assert_that
 
@@ -18,15 +16,15 @@ def mock_audio_config():
     )
 
 
-@patch("speech_processing.models.audio_model.Qwen2AudioForConditionalGeneration")
-@patch("speech_processing.models.audio_model.AutoProcessor")
-@patch("speech_processing.models.audio_model.TransformersAdapter")
-@patch("speech_processing.models.audio_model.librosa")
-@patch("speech_processing.models.audio_model.urlopen")
-def test_audio_batch_infer(mock_urlopen, mock_librosa, mock_adapter_class, mock_processor_class, mock_model_class, mock_audio_config):
+def test_audio_batch_infer(mocker, mock_audio_config):
+    mocker.patch("speech_processing.models.audio_model.Qwen2AudioForConditionalGeneration")
+    mocker.patch("speech_processing.models.audio_model.AutoProcessor")
+    mock_adapter_class = mocker.patch("speech_processing.models.audio_model.TransformersAdapter")
+    mock_librosa = mocker.patch("speech_processing.models.audio_model.librosa")
+    mock_urlopen = mocker.patch("speech_processing.models.audio_model.urlopen")
     # Setup mocks
     mock_urlopen.return_value.read.return_value = b"fake audio data"
-    mock_librosa.load.return_value = (MagicMock(), 16000)
+    mock_librosa.load.return_value = (mocker.MagicMock(), 16000)
     mock_adapter = mock_adapter_class.return_value
     mock_adapter.generate_batch.return_value = ["mock answer 1", "mock answer 2"]
     

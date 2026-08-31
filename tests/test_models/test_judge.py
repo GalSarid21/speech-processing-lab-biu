@@ -1,12 +1,18 @@
 import json
 import sys
-from unittest.mock import MagicMock, patch
 
 import pytest
 from assertpy import assert_that
 
+
 # Mock vLLM import since it is not installable on MacOS
-sys.modules['vllm'] = MagicMock()
+class DummyMock:
+    def __getattr__(self, name):
+        return DummyMock()
+    def __call__(self, *args, **kwargs):
+        return DummyMock()
+
+sys.modules['vllm'] = DummyMock()
 
 from speech_processing.config.core import JudgeConfig
 from speech_processing.data.dtos import JudgeRequest
@@ -27,9 +33,10 @@ def mock_judge_config():
     )
 
 
-@patch("speech_processing.models.judge.LLM")
-@patch("speech_processing.models.judge.VLLMAdapter")
-def test_judge_batch_evaluate_success(mock_vllm_adapter_class, mock_llm_class, mock_judge_config):
+def test_judge_batch_evaluate_success(mocker, mock_judge_config):
+    mocker.patch("speech_processing.models.judge.LLM")
+    mock_vllm_adapter_class = mocker.patch("speech_processing.models.judge.VLLMAdapter")
+    
     # Setup mock LLM and Adapter
     mock_adapter = mock_vllm_adapter_class.return_value
     
@@ -59,9 +66,9 @@ def test_judge_batch_evaluate_success(mock_vllm_adapter_class, mock_llm_class, m
     mock_adapter.generate_batch.assert_called_once()
 
 
-@patch("speech_processing.models.judge.LLM")
-@patch("speech_processing.models.judge.VLLMAdapter")
-def test_judge_batch_evaluate_json_fallback(mock_vllm_adapter_class, mock_llm_class, mock_judge_config):
+def test_judge_batch_evaluate_json_fallback(mocker, mock_judge_config):
+    mocker.patch("speech_processing.models.judge.LLM")
+    mock_vllm_adapter_class = mocker.patch("speech_processing.models.judge.VLLMAdapter")
     mock_adapter = mock_vllm_adapter_class.return_value
     
     # Simulate garbage string from vLLM (e.g. if guided_json fails or model hallucinates text)

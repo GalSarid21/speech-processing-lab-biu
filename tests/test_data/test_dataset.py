@@ -1,4 +1,3 @@
-from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -14,13 +13,13 @@ def mock_dataset_config():
         dataset_id="mock/dataset",
         target_labels=["COPD", "Healthy"],
         split="test",
+        num_samples=100
     )
 
 
-@patch("speech_processing.data.dataset.load_dataset")
-def test_dataset_filtering_and_padding(mock_load_dataset, mock_dataset_config):
-    # Create a mock huggingface dataset that returns a specific pandas dataframe
-    mock_ds = MagicMock()
+def test_dataset_filtering_and_padding(mocker, mock_dataset_config):
+    mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
+    mock_ds = mocker.MagicMock()
     
     # 2 COPD, 1 Healthy, 2 Asthma (which should be filtered out)
     df = pd.DataFrame({
@@ -56,9 +55,9 @@ def test_dataset_filtering_and_padding(mock_load_dataset, mock_dataset_config):
     assert_that(returned_labels.count("Asthma")).is_equal_to(2)
 
 
-@patch("speech_processing.data.dataset.load_dataset")
-def test_dataset_no_padding_needed(mock_load_dataset, mock_dataset_config):
-    mock_ds = MagicMock()
+def test_dataset_no_padding_needed(mocker, mock_dataset_config):
+    mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
+    mock_ds = mocker.MagicMock()
     df = pd.DataFrame({
         "instruction": ["p1", "p2", "p3", "p4"],
         "file": ["1.wav", "2.wav", "3.wav", "4.wav"],

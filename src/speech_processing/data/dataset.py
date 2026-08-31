@@ -1,5 +1,5 @@
 import pandas as pd
-from datasets import load_dataset, Audio
+from datasets import Audio, load_dataset
 from loguru import logger
 
 from speech_processing.config.core import DatasetConfig
