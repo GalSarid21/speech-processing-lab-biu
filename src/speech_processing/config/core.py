@@ -30,13 +30,13 @@ class AppConfig(BaseModel):
         model_id="Qwen/Qwen3.8-27B-FP8",
         dtype="auto",
         max_new_tokens=512,
-        max_num_seqs=256,
+        max_num_seqs=64,
         max_model_len=8192,
     ))
     audio_model: AudioModelConfig = Field(default_factory=lambda: AudioModelConfig(
         model_id="Qwen/Qwen2-Audio-7B-Instruct",
         dtype="bfloat16",
-        max_num_seqs=512,
+        max_num_seqs=8,
         max_new_tokens=256,
     ))
     dataset: DatasetConfig = Field(default_factory=lambda: DatasetConfig(
