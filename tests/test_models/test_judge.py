@@ -53,7 +53,7 @@ def test_judge_batch_evaluate_success(mocker, mock_judge_config):
     template = QwenICBHI2017JudgeTemplate()
     judge = QwenJudge(config=mock_judge_config, template=template)
 
-    requests = [JudgeRequest(instruction="prompt", generated_text="answer", ground_truth="COPD")]
+    requests = [JudgeRequest(sample_id="test_id", instruction="prompt", generated_text="answer", ground_truth="COPD")]
     responses = judge.batch_evaluate(requests)
 
     assert_that(responses).is_length(1)
@@ -77,7 +77,7 @@ def test_judge_batch_evaluate_json_fallback(mocker, mock_judge_config):
     template = QwenICBHI2017JudgeTemplate()
     judge = QwenJudge(config=mock_judge_config, template=template)
 
-    requests = [JudgeRequest(instruction="prompt", generated_text="answer", ground_truth="COPD")]
+    requests = [JudgeRequest(sample_id="test_id", instruction="prompt", generated_text="answer", ground_truth="COPD")]
     responses = judge.batch_evaluate(requests)
 
     assert_that(responses).is_length(1)

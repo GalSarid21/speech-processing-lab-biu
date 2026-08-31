@@ -90,7 +90,9 @@ class QwenAudioEngine(BaseAudioModel):
                 for req, gen_text in zip(valid_reqs, generated_texts):
                     responses.append(
                         AudioResponse(
-                            instruction=req.instruction, generated_text=gen_text
+                            sample_id=req.audio_path,
+                            instruction=req.instruction, 
+                            generated_text=gen_text
                         )
                     )
             except Exception as e:  # noqa: BLE001

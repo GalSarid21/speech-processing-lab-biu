@@ -33,6 +33,7 @@ def run_audio_phase(config: AppConfig, temp_file_path: str):
         f.writelines(
             json.dumps(
                 {
+                    "sample_id": req.audio_path,
                     "instruction": req.instruction,
                     "generated_text": resp.generated_text,
                     "ground_truth": gt,
@@ -62,6 +63,7 @@ def run_judge_phase(config: AppConfig, temp_file_path: str, output_file_path: st
                 data = json.loads(line)
                 judge_requests.append(
                     JudgeRequest(
+                        sample_id=data["sample_id"],
                         instruction=data["instruction"],
                         generated_text=data["generated_text"],
                         ground_truth=data["ground_truth"],
@@ -77,29 +79,32 @@ def run_judge_phase(config: AppConfig, temp_file_path: str, output_file_path: st
     with open(output_file_path, "w") as f:
         f.writelines(eval_resp.model_dump_json() + "\n" for eval_resp in evaluations)
 
+    from speech_processing.evaluation.metrics import calculate_metrics
+    metrics = calculate_metrics(evaluations)
+
     print("\n==============================================")
     print("FINAL EVALUATION REPORT")
     print("==============================================")
 
-    total_rate = 0.0
     for i, eval_item in enumerate(evaluations):
-        score = eval_item.evaluation.rate
-        total_rate += score
-
-        print(f"\n--- Sample {i + 1} ---")
+        print(f"\n--- Sample {eval_item.request.sample_id} ---")
         print(f"Instruction: {eval_item.request.instruction}")
         print(f"True Label:  {eval_item.request.ground_truth}")
         print(f"Qwen Output: {eval_item.request.generated_text}")
-        print(f"Judge Score: {score}/10")
+        print(f"Predicted:   {eval_item.evaluation.extracted_disease_class}")
+        print(f"Acoustic:    {eval_item.evaluation.acoustic_accuracy}/10")
+        print(f"Diagnostic:  {eval_item.evaluation.diagnostic_accuracy}/10")
+        print(f"Hallucinated:{'Yes' if eval_item.evaluation.hallucination_penalty == 1 else 'No'}")
         print(f"Reasoning:   {eval_item.evaluation.reasoning}")
         print("-" * 30)
 
-    if evaluations:
-        avg_rate = total_rate / len(evaluations)
-        accuracy_percentage = (avg_rate / 10.0) * 100
-        print(
-            f"\nAggregate Dataset Accuracy: {avg_rate:.3f}/10 ({accuracy_percentage:.3f}%)"
-        )
+    if metrics:
+        print(f"\n--- AGGREGATE METRICS ---")
+        print(f"Avg Acoustic Accuracy:   {metrics.avg_acoustic_pct:.2f}%")
+        print(f"Avg Diagnostic Accuracy: {metrics.avg_diagnostic_pct:.2f}%")
+        print(f"Hallucination Rate:      {metrics.hallucination_rate_pct:.2f}%\n")
+        print("Classification Report:")
+        print(metrics.classification_report)
     else:
         print("\nAggregate Dataset Accuracy: 0/10 (0%)")
 

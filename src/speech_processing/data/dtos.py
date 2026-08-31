@@ -8,11 +8,13 @@ class AudioRequest(BaseModel):
 
 
 class AudioResponse(BaseModel):
+    sample_id: str
     instruction: str
     generated_text: str
 
 
 class JudgeRequest(BaseModel):
+    sample_id: str
     instruction: str
     generated_text: str
     ground_truth: str

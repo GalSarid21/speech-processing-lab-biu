@@ -5,7 +5,7 @@ from speech_processing.evaluation.metrics import calculate_metrics
 
 
 def test_calculate_metrics():
-    req = JudgeRequest(instruction="", generated_text="", ground_truth="COPD")
+    req = JudgeRequest(sample_id="test_id", instruction="", generated_text="", ground_truth="COPD")
     resp1 = JudgeResponse(
         request=req, evaluation=EvaluationResult(reasoning="pass", acoustic_accuracy=8, diagnostic_accuracy=10, hallucination_penalty=0, extracted_disease_class="COPD")
     )
