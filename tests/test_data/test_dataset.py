@@ -1,7 +1,8 @@
+from unittest.mock import MagicMock, patch
+
 import pandas as pd
 import pytest
 from assertpy import assert_that
-from unittest.mock import patch, MagicMock
 
 from speech_processing.config.core import DatasetConfig
 from speech_processing.data.dataset import load_icbhi_requests
@@ -34,7 +35,8 @@ def test_dataset_filtering_and_padding(mock_load_dataset, mock_dataset_config):
 
     # We ask for 5 samples, but only 3 are valid (COPD, Healthy, COPD).
     # It should pad the remaining 2 with disjoint samples (the 2 Asthma ones).
-    results = load_icbhi_requests(config=mock_dataset_config, num_samples=5)
+    mock_dataset_config.num_samples = 5
+    results = load_icbhi_requests(config=mock_dataset_config)
     
     assert_that(results).is_length(5)
     
@@ -65,7 +67,8 @@ def test_dataset_no_padding_needed(mock_load_dataset, mock_dataset_config):
     mock_load_dataset.return_value = mock_ds
 
     # We only ask for 2 samples out of 4 valid ones
-    results = load_icbhi_requests(config=mock_dataset_config, num_samples=2)
+    mock_dataset_config.num_samples = 2
+    results = load_icbhi_requests(config=mock_dataset_config)
     
     assert_that(results).is_length(2)
     returned_labels = [gt for _, gt in results]

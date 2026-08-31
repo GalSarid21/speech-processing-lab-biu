@@ -1,8 +1,9 @@
-import sys
 import json
+import sys
+from unittest.mock import MagicMock, patch
+
 import pytest
 from assertpy import assert_that
-from unittest.mock import patch, MagicMock
 
 # Mock vLLM import since it is not installable on MacOS
 sys.modules['vllm'] = MagicMock()
@@ -10,7 +11,9 @@ sys.modules['vllm'] = MagicMock()
 from speech_processing.config.core import JudgeConfig
 from speech_processing.data.dtos import JudgeRequest
 from speech_processing.models.judge import QwenJudge
-from speech_processing.prompts.templates.judge.qwen_judge import QwenICBHI2017JudgeTemplate
+from speech_processing.prompts.templates.judge.qwen_judge import (
+    QwenICBHI2017JudgeTemplate,
+)
 
 
 @pytest.fixture

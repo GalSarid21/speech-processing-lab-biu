@@ -18,9 +18,13 @@ class DatasetConfig(BaseModel):
     dataset_id: str
     target_labels: list[str]
     split: str
+    num_samples: int = Field(default=100, description="Number of samples to evaluate")
+
 
 class AppConfig(BaseModel):
     """The master configuration wrapper. Single source of truth for defaults."""
+    
+    output_dir: str = Field(default="./results", description="Destination for pipeline artifacts")
 
     judge: JudgeConfig = Field(default_factory=lambda: JudgeConfig(
         model_id="Qwen/Qwen3.8-27B-FP8",
@@ -39,4 +43,5 @@ class AppConfig(BaseModel):
         dataset_id="DynamicSuperb/RespiratorySoundClassification_ICBHI2017",
         target_labels=["COPD", "No potential disease detected", "Healthy"],
         split="test",
+        num_samples=100,
     ))

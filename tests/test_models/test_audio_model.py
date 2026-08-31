@@ -1,6 +1,7 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 from assertpy import assert_that
-from unittest.mock import patch, MagicMock
 
 from speech_processing.config.core import AudioModelConfig
 from speech_processing.data.dtos import AudioRequest

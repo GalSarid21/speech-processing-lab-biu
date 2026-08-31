@@ -6,7 +6,7 @@ from speech_processing.config.core import DatasetConfig
 from speech_processing.data.dtos import AudioRequest
 
 
-def load_icbhi_requests(config: DatasetConfig, num_samples: int = 100) -> list[tuple[AudioRequest, str]]:
+def load_icbhi_requests(config: DatasetConfig) -> list[tuple[AudioRequest, str]]:
     """Loads the ICBHI dataset, filters it, and returns a list of (AudioRequest, ground_truth)."""
     logger.info(f"Loading {config.dataset_id} dataset from HuggingFace...")
     ds = load_dataset(config.dataset_id, split=config.split)
@@ -19,6 +19,7 @@ def load_icbhi_requests(config: DatasetConfig, num_samples: int = 100) -> list[t
         df["label"].str.contains("|".join(config.target_labels), case=False, na=False)
     ]
 
+    num_samples = config.num_samples
     if len(filtered_df) < num_samples:
         logger.warning(
             f"Only found {len(filtered_df)} matching samples. Padding with disjoint samples."

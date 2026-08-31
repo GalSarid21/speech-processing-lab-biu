@@ -21,8 +21,8 @@ def run_audio_phase(config: AppConfig, temp_file_path: str):
     logger.info("--- [PHASE 1] AUDIO INFERENCE ---")
     audio_engine = QwenAudioEngine(config.audio_model)
 
-    # Load exactly 100 samples from the real dataset
-    dataset_items = load_icbhi_requests(num_samples=100)
+    # Load samples from the real dataset based on config
+    dataset_items = load_icbhi_requests(config.dataset)
     requests = [req for req, _ in dataset_items]
     ground_truths = [gt for _, gt in dataset_items]
 
@@ -114,13 +114,23 @@ def release_vram():
 
 
 def main():
-    config = AppConfig()
-    os.makedirs("./results", exist_ok=True)
+    import argparse
+    parser = argparse.ArgumentParser(description="Run the Speech Processing Pipeline")
+    parser.add_argument("--output-dir", type=str, default="./results", help="Directory to save artifacts")
+    parser.add_argument("--num-samples", type=int, default=100, help="Number of dataset samples to evaluate")
+    args = parser.parse_args()
+
+    # Pass the CLI arguments to AppConfig
+    # We update the default DatasetConfig inside AppConfig to respect --num-samples
+    config = AppConfig(output_dir=args.output_dir)
+    config.dataset.num_samples = args.num_samples
+
+    os.makedirs(config.output_dir, exist_ok=True)
 
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    temp_file = f"./results/temp_audio_preds_{timestamp}.jsonl"
-    final_output = (
-        f"./results/qwen2-audio-baseline-qwen3.6-35b-a3b-judge-{timestamp}.jsonl"
+    temp_file = os.path.join(config.output_dir, f"temp_audio_preds_{timestamp}.jsonl")
+    final_output = os.path.join(
+        config.output_dir, f"qwen2-audio-baseline-qwen3.8-27b-fp8-judge-{timestamp}.jsonl"
     )
 
     # Phase 1: Audio Model
