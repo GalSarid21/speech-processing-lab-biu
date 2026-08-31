@@ -55,7 +55,12 @@ class QwenAudioEngine(BaseAudioModel):
                 )
 
                 try:
-                    if req.audio_path.startswith("http"):
+                    if req.audio_bytes is not None:
+                        audio_data, _ = librosa.load(
+                            BytesIO(req.audio_bytes),
+                            sr=self.processor.feature_extractor.sampling_rate,
+                        )
+                    elif req.audio_path.startswith("http"):
                         audio_data, _ = librosa.load(
                             BytesIO(urlopen(req.audio_path).read()),
                             sr=self.processor.feature_extractor.sampling_rate,

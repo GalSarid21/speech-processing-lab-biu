@@ -26,10 +26,11 @@ def test_dataset_filtering_and_padding(mock_load_dataset, mock_dataset_config):
     df = pd.DataFrame({
         "instruction": ["prompt1", "prompt2", "prompt3", "prompt4", "prompt5"],
         "file": ["f1.wav", "f2.wav", "f3.wav", "f4.wav", "f5.wav"],
-        "label": ["COPD", "Asthma", "Healthy", "COPD", "Asthma"]
+        "label": ["COPD", "Asthma", "Healthy", "COPD", "Asthma"],
+        "audio": [{"bytes": b"1"}, {"bytes": b"2"}, {"bytes": b"3"}, {"bytes": b"4"}, {"bytes": b"5"}]
     })
     
-    mock_ds.remove_columns.return_value = mock_ds
+    mock_ds.cast_column.return_value = mock_ds
     mock_ds.to_pandas.return_value = df
     mock_load_dataset.return_value = mock_ds
 
@@ -44,6 +45,7 @@ def test_dataset_filtering_and_padding(mock_load_dataset, mock_dataset_config):
     for req, label in results:
         assert_that(req.instruction).starts_with("prompt")
         assert_that(req.audio_path).ends_with(".wav")
+        assert_that(req.audio_bytes).is_not_none()
         assert_that(label).is_in("COPD", "Healthy", "Asthma")
     
     # Extract the labels that were returned
@@ -60,9 +62,10 @@ def test_dataset_no_padding_needed(mock_load_dataset, mock_dataset_config):
     df = pd.DataFrame({
         "instruction": ["p1", "p2", "p3", "p4"],
         "file": ["1.wav", "2.wav", "3.wav", "4.wav"],
-        "label": ["COPD", "COPD", "Healthy", "Healthy"]
+        "label": ["COPD", "COPD", "Healthy", "Healthy"],
+        "audio": [{"bytes": b"1"}, {"bytes": b"2"}, {"bytes": b"3"}, {"bytes": b"4"}]
     })
-    mock_ds.remove_columns.return_value = mock_ds
+    mock_ds.cast_column.return_value = mock_ds
     mock_ds.to_pandas.return_value = df
     mock_load_dataset.return_value = mock_ds
 

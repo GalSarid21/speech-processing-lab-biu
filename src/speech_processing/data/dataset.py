@@ -1,5 +1,5 @@
 import pandas as pd
-from datasets import load_dataset
+from datasets import load_dataset, Audio
 from loguru import logger
 
 from speech_processing.config.core import DatasetConfig
@@ -10,7 +10,9 @@ def load_icbhi_requests(config: DatasetConfig) -> list[tuple[AudioRequest, str]]
     """Loads the ICBHI dataset, filters it, and returns a list of (AudioRequest, ground_truth)."""
     logger.info(f"Loading {config.dataset_id} dataset from HuggingFace...")
     ds = load_dataset(config.dataset_id, split=config.split)
-    ds = ds.remove_columns(["audio"])
+    
+    # Cast audio to NOT decode so we can extract the raw bytes safely
+    ds = ds.cast_column("audio", Audio(decode=False))
 
     df = ds.to_pandas()
 
@@ -34,7 +36,13 @@ def load_icbhi_requests(config: DatasetConfig) -> list[tuple[AudioRequest, str]]
 
     results = []
     for _, row in sample_df.iterrows():
-        req = AudioRequest(instruction=row["instruction"], audio_path=row["file"])
+        audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
+        
+        req = AudioRequest(
+            instruction=row["instruction"], 
+            audio_path=row["file"],
+            audio_bytes=audio_bytes
+        )
         results.append((req, row["label"]))
 
     logger.info(f"Successfully prepared {len(results)} samples from the dataset.")

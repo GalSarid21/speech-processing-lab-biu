@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 class AudioRequest(BaseModel):
     instruction: str
     audio_path: str
+    audio_bytes: bytes | None = None
 
 
 class AudioResponse(BaseModel):
