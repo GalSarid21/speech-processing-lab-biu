@@ -42,10 +42,22 @@ class QwenJudge(BaseJudgeModel):
             f"Evaluating batch of size {len(requests)} with guided JSON decoding..."
         )
 
+        schema_str = json.dumps(EvaluationResult.model_json_schema())
+        guided_kwargs = {}
+        try:
+            from vllm.sampling_params import GuidedDecodingParams
+            guided_kwargs["guided_decoding"] = GuidedDecodingParams(json=schema_str)
+        except ImportError:
+            try:
+                from vllm.sampling_params import StructuredOutputsParams
+                guided_kwargs["structured_outputs"] = StructuredOutputsParams(json=schema_str)
+            except ImportError:
+                guided_kwargs["guided_json"] = schema_str
+
         sampling_params = SamplingParams(
             temperature=0.0,
             max_tokens=self.config.max_new_tokens,
-            guided_json=json.dumps(EvaluationResult.model_json_schema()),
+            **guided_kwargs
         )
 
         try:
