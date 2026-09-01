@@ -71,27 +71,27 @@ class ExperimentVersion(Enum):
     )
     V3 = ExperimentMetadata(
         name="symptoms_dict",
-        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_symptoms
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_symptoms
     )
     V4 = ExperimentMetadata(
         name="acoustic_dict",
-        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic
     )
     V5 = ExperimentMetadata(
         name="cot",
-        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction
     )
     V6 = ExperimentMetadata(
         name="few_shot",
-        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + few_shot_no_cot
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + few_shot_no_cot
     )
     V7 = ExperimentMetadata(
         name="cot_and_few_shot",
-        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot
     )
     V8 = ExperimentMetadata(
         name="full_optimized",
-        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot + "\nIf you cannot confidently detect any specific disease acoustic signatures, output 'Final Diagnosis: Healthy'. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'."
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot + "\nIf you cannot confidently detect any specific disease acoustic signatures, output 'Final Diagnosis: Healthy'. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'."
     )
     
     @classmethod
