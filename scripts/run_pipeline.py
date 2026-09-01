@@ -17,12 +17,27 @@ from speech_processing.prompts.templates.judge.qwen_judge import (
 )
 
 
-def run_audio_phase(config: AppConfig, temp_file_path: str):
+def run_audio_phase(config: AppConfig, temp_file_path: str, prompt_version: str = "original"):
     logger.info("--- [PHASE 1] AUDIO INFERENCE ---")
     audio_engine = QwenAudioEngine(config.audio_model)
 
     # Load samples from the real dataset based on config
     dataset_items = load_icbhi_requests(config.dataset)
+    
+    # Optional Prompt Override
+    if prompt_version != "original":
+        from speech_processing.prompts.templates.audio.experiments import PROMPT_EXPERIMENTS
+        if prompt_version not in PROMPT_EXPERIMENTS:
+            logger.error(f"Invalid prompt version: {prompt_version}")
+            raise ValueError(f"Invalid prompt version: {prompt_version}")
+            
+        custom_instruction = PROMPT_EXPERIMENTS[prompt_version]
+        logger.info(f"Overriding dataset instructions with prompt version: {prompt_version}")
+        
+        # Override the instruction in the DTO
+        for req, _ in dataset_items:
+            req.instruction = custom_instruction
+
     requests = [req for req, _ in dataset_items]
     ground_truths = [gt for _, gt in dataset_items]
 
@@ -131,6 +146,7 @@ def main():
     parser.add_argument("--output-dir", type=str, default="./results", help="Directory to save artifacts")
     parser.add_argument("--num-samples", type=int, default=100, help="Number of dataset samples to evaluate")
     parser.add_argument("--experiment-name", type=str, default="baseline", help="Name of the experiment (used for folder naming)")
+    parser.add_argument("--prompt-version", type=str, default="original", help="Which experimental prompt to use (e.g. v1, v4, etc.)")
     args = parser.parse_args()
 
     # Pass the CLI arguments to AppConfig
@@ -148,7 +164,7 @@ def main():
     metrics_output = os.path.join(run_dir, "metrics.txt")
 
     # Phase 1: Audio Model
-    run_audio_phase(config, temp_file)
+    run_audio_phase(config, temp_file, prompt_version=args.prompt_version)
 
     # Free memory explicitly instead of relying on process termination
     release_vram()
