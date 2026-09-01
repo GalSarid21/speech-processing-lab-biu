@@ -49,7 +49,7 @@ def run_audio_phase(config: AppConfig, temp_file_path: str):
     # audio_engine goes out of scope here, making it eligible for GC.
 
 
-def run_judge_phase(config: AppConfig, temp_file_path: str, output_file_path: str):
+def run_judge_phase(config: AppConfig, temp_file_path: str, output_file_path: str, metrics_file_path: str):
     logger.info("--- [PHASE 2] JUDGE EVALUATION ---")
 
     # Inject template
@@ -99,12 +99,19 @@ def run_judge_phase(config: AppConfig, temp_file_path: str, output_file_path: st
         print("-" * 30)
 
     if metrics:
-        print(f"\n--- AGGREGATE METRICS ---")
-        print(f"Avg Acoustic Accuracy:   {metrics.avg_acoustic_pct:.2f}%")
-        print(f"Avg Diagnostic Accuracy: {metrics.avg_diagnostic_pct:.2f}%")
-        print(f"Hallucination Rate:      {metrics.hallucination_rate_pct:.2f}%\n")
-        print("Classification Report:")
-        print(metrics.classification_report)
+        report = (
+            f"--- AGGREGATE METRICS ---\n"
+            f"Avg Acoustic Accuracy:   {metrics.avg_acoustic_pct:.2f}%\n"
+            f"Avg Diagnostic Accuracy: {metrics.avg_diagnostic_pct:.2f}%\n"
+            f"Hallucination Rate:      {metrics.hallucination_rate_pct:.2f}%\n\n"
+            f"Classification Report:\n"
+            f"{metrics.classification_report}\n"
+        )
+        print(f"\n{report}")
+        
+        with open(metrics_file_path, "w") as f:
+            f.write(report)
+        logger.info(f"Aggregate metrics saved to {metrics_file_path}")
     else:
         print("\nAggregate Dataset Accuracy: 0/10 (0%)")
 
@@ -123,6 +130,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run the Speech Processing Pipeline")
     parser.add_argument("--output-dir", type=str, default="./results", help="Directory to save artifacts")
     parser.add_argument("--num-samples", type=int, default=100, help="Number of dataset samples to evaluate")
+    parser.add_argument("--experiment-name", type=str, default="baseline", help="Name of the experiment (used for folder naming)")
     args = parser.parse_args()
 
     # Pass the CLI arguments to AppConfig
@@ -130,13 +138,14 @@ def main():
     config = AppConfig(output_dir=args.output_dir)
     config.dataset.num_samples = args.num_samples
 
-    os.makedirs(config.output_dir, exist_ok=True)
-
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    temp_file = os.path.join(config.output_dir, f"temp_audio_preds_{timestamp}.jsonl")
-    final_output = os.path.join(
-        config.output_dir, f"qwen2-audio-baseline-qwen3.8-27b-fp8-judge-{timestamp}.jsonl"
-    )
+    run_name = f"{args.experiment_name}_{timestamp}"
+    run_dir = os.path.join(config.output_dir, run_name)
+    os.makedirs(run_dir, exist_ok=True)
+
+    temp_file = os.path.join(run_dir, "temp_audio_preds.jsonl")
+    final_output = os.path.join(run_dir, "raw_output.jsonl")
+    metrics_output = os.path.join(run_dir, "metrics.txt")
 
     # Phase 1: Audio Model
     run_audio_phase(config, temp_file)
@@ -148,7 +157,7 @@ def main():
     time.sleep(60)
 
     # Phase 2: Judge Model
-    run_judge_phase(config, temp_file, final_output)
+    run_judge_phase(config, temp_file, final_output, metrics_output)
     
     # Final cleanup (optional but good practice)
     release_vram()
