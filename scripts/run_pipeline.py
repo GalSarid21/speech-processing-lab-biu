@@ -176,6 +176,10 @@ def main():
     from speech_processing.prompts.templates.audio.experiments import ExperimentVersion
     experiment_meta = ExperimentVersion.get_version(args.experiment).value
 
+    # Override dynamic variables based on experiment meta to prevent OOM / Sequence Length crashes
+    config.audio_model.max_new_tokens = experiment_meta.max_new_tokens
+    config.audio_model.max_num_seqs = experiment_meta.batch_size
+
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     run_name = f"{experiment_meta.experiment_name}_{timestamp}"
     run_dir = os.path.join(config.output_dir, run_name)

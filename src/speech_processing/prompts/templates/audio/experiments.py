@@ -55,43 +55,61 @@ Final Diagnosis: Asthma
 
 
 class ExperimentMetadata:
-    def __init__(self, name: str, prompt: str):
+    def __init__(self, name: str, prompt: str, max_new_tokens: int = 256, batch_size: int = 8):
         self.experiment_name = name
         self.prompt = prompt
+        self.max_new_tokens = max_new_tokens
+        self.batch_size = batch_size
 
 
 class ExperimentVersion(Enum):
     V1 = ExperimentMetadata(
         name="baseline",
-        prompt="Detect the disease in this lung sound audio."
+        prompt="Detect the disease in this lung sound audio.",
+        max_new_tokens=256,
+        batch_size=8
     )
     V2 = ExperimentMetadata(
         name="format_strict",
-        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'"
+        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'",
+        max_new_tokens=256,
+        batch_size=8
     )
     V3 = ExperimentMetadata(
         name="symptoms_dict",
-        prompt="Detect the disease in this lung sound audio.\n" + dictionary_symptoms
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_symptoms,
+        max_new_tokens=256,
+        batch_size=8
     )
     V4 = ExperimentMetadata(
         name="acoustic_dict",
-        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic,
+        max_new_tokens=256,
+        batch_size=8
     )
     V5 = ExperimentMetadata(
         name="cot",
-        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction,
+        max_new_tokens=512,  # CoT needs more generation space
+        batch_size=4         # Larger prompt/output context, reduce batch size
     )
     V6 = ExperimentMetadata(
         name="few_shot",
-        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + few_shot_no_cot
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + few_shot_no_cot,
+        max_new_tokens=256,
+        batch_size=4         # Large prompt, reduce batch size
     )
     V7 = ExperimentMetadata(
         name="cot_and_few_shot",
-        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot,
+        max_new_tokens=512,
+        batch_size=2         # Massive prompt and large generation context
     )
     V8 = ExperimentMetadata(
         name="full_optimized",
-        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot + "\nIf you cannot confidently detect any specific disease acoustic signatures, output 'Final Diagnosis: Healthy'. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'."
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot + "\nIf you cannot confidently detect any specific disease acoustic signatures, output 'Final Diagnosis: Healthy'. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'.",
+        max_new_tokens=512,
+        batch_size=2
     )
     
     @classmethod

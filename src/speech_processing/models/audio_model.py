@@ -84,7 +84,7 @@ class QwenAudioEngine(BaseAudioModel):
             try:
                 # Use adapter to generate
                 generated_texts = self.adapter.generate_batch(
-                    texts=texts, audios=audios, max_length=self.config.max_new_tokens
+                    texts=texts, audios=audios, max_new_tokens=self.config.max_new_tokens
                 )
 
                 for req, gen_text in zip(valid_reqs, generated_texts):

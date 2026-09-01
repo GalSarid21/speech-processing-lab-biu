@@ -11,7 +11,7 @@ class TransformersAdapter(BaseGenerationAdapter):
         self.processor = processor
 
     def generate_batch(
-        self, texts: list[str], audios: list[Any], max_length: int = 256
+        self, texts: list[str], audios: list[Any], max_new_tokens: int = 256
     ) -> list[str]:
         inputs = self.processor(
             text=texts, audios=audios, return_tensors="pt", padding=True
@@ -19,7 +19,7 @@ class TransformersAdapter(BaseGenerationAdapter):
         inputs = inputs.to(self.model.device)
 
         with torch.no_grad():
-            generate_ids = self.model.generate(**inputs, max_length=max_length)
+            generate_ids = self.model.generate(**inputs, max_new_tokens=max_new_tokens)
 
         generate_ids = generate_ids[:, inputs.input_ids.size(1) :]
 
