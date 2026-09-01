@@ -157,6 +157,12 @@ class ExperimentVersion(Enum):
         max_new_tokens=512,
         batch_size=2
     )
+    V12 = ExperimentMetadata(
+        name="authentic_few_shot_holistic_honest",
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_holistic + "\n" + cot_instruction + "\n\nCRITICAL INSTRUCTIONS:\n1. You will ONLY hear acoustic sounds, not clinical symptoms. Use the clinical context merely to understand the disease.\n2. HONESTY IS CRITICAL: Do NOT invent or hallucinate sounds to justify a diagnosis. If you suspect a disease based on the general sound profile but cannot clearly hear its classic acoustic signature (like crackles or wheezes), explicitly state: 'I do not clearly hear adventitious sounds.' You may still provide your best guess for the Final Diagnosis, but you must be honest about the raw audio.\n3. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'.",
+        max_new_tokens=512,
+        batch_size=2
+    )
     
     @classmethod
     def get_version(cls, version_str: str) -> "ExperimentVersion":
