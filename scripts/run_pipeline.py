@@ -40,7 +40,7 @@ def run_audio_phase(config: AppConfig, temp_file_path: str, prompt_version: str 
         
         # Load authentic few-shot turns if running V9
         few_shot_turns = []
-        if experiment_meta.name == "authentic_few_shot":
+        if experiment_meta.experiment_name == "authentic_few_shot":
             from speech_processing.data.dataset import get_authentic_few_shot_turns
             few_shot_turns = get_authentic_few_shot_turns(config.dataset, custom_instruction)
 
