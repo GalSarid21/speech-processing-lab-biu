@@ -107,9 +107,15 @@ class ExperimentVersion(Enum):
     )
     V8 = ExperimentMetadata(
         name="full_optimized",
-        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot + "\nIf you cannot confidently detect any specific disease acoustic signatures, output 'Final Diagnosis: Healthy'. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'.",
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction + "\n\nCRITICAL INSTRUCTIONS:\n1. Do NOT hallucinate sounds. If you cannot confidently detect any specific disease acoustic signatures (crackles, wheezes, etc), you MUST output 'Final Diagnosis: Healthy' or 'Final Diagnosis: No potential disease detected'.\n2. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'.",
         max_new_tokens=512,
-        batch_size=2
+        batch_size=4
+    )
+    V9 = ExperimentMetadata(
+        name="authentic_few_shot",
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction + "\n\nCRITICAL INSTRUCTIONS:\n1. Do NOT hallucinate sounds. If you cannot confidently detect any specific disease acoustic signatures (crackles, wheezes, etc), you MUST output 'Final Diagnosis: Healthy' or 'Final Diagnosis: No potential disease detected'.\n2. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'.",
+        max_new_tokens=512,
+        batch_size=2  # Multi-audio context needs small batch size
     )
     
     @classmethod

@@ -3,7 +3,43 @@ from datasets import Audio, load_dataset
 from loguru import logger
 
 from speech_processing.config.core import DatasetConfig
-from speech_processing.data.dtos import AudioRequest
+from speech_processing.data.dtos import AudioRequest, FewShotTurn
+
+def get_authentic_few_shot_turns(config: DatasetConfig, prompt: str) -> list[FewShotTurn]:
+    """Fetches real audio samples from the train split to use as authentic few-shot references."""
+    logger.info("Fetching authentic few-shot examples from the train split...")
+    ds = load_dataset(config.dataset_id, split="train")
+    ds = ds.cast_column("audio", Audio(decode=False))
+    df = ds.to_pandas()
+
+    turns = []
+    
+    # 1. Healthy Example (Hardcoded ID for reproducibility)
+    healthy_df = df[df["file"] == "audio100.wav"]
+    if not healthy_df.empty:
+        row = healthy_df.iloc[0]
+        audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
+        turns.append(FewShotTurn(
+            audio_bytes=audio_bytes,
+            audio_path=row["file"],
+            user_text=prompt,
+            assistant_text="I detect normal vesicular breath sounds without any adventitious sounds like crackles or wheezes. Cross-referencing the dictionary, these features indicate a Healthy patient.\nFinal Diagnosis: Healthy"
+        ))
+
+    # 2. COPD Example (Hardcoded ID for reproducibility)
+    copd_df = df[df["file"] == "audio101.wav"]
+    if not copd_df.empty:
+        row = copd_df.iloc[0]
+        audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
+        turns.append(FewShotTurn(
+            audio_bytes=audio_bytes,
+            audio_path=row["file"],
+            user_text=prompt,
+            assistant_text="I detect a prolonged expiratory phase along with early inspiratory coarse crackles and expiratory wheezes. Cross-referencing the dictionary, these match the classic acoustic signature of COPD.\nFinal Diagnosis: COPD"
+        ))
+
+    logger.info(f"Successfully loaded {len(turns)} authentic few-shot turns.")
+    return turns
 
 
 def load_icbhi_requests(config: DatasetConfig) -> list[tuple[AudioRequest, str]]:

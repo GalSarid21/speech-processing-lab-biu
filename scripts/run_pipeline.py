@@ -37,8 +37,16 @@ def run_audio_phase(config: AppConfig, temp_file_path: str, prompt_version: str 
         logger.info(f"Overriding dataset instructions with prompt version: {prompt_version} ({experiment_meta.experiment_name})")
         
         # Override the instruction in the DTO
+        
+        # Load authentic few-shot turns if running V9
+        few_shot_turns = []
+        if experiment_meta.name == "authentic_few_shot":
+            from speech_processing.data.dataset import get_authentic_few_shot_turns
+            few_shot_turns = get_authentic_few_shot_turns(config.dataset, custom_instruction)
+
         for req, _ in dataset_items:
             req.instruction = custom_instruction
+            req.few_shot_turns = few_shot_turns
 
     requests = [req for req, _ in dataset_items]
     ground_truths = [gt for _, gt in dataset_items]
