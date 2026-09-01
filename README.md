@@ -35,20 +35,50 @@ The pipeline was developed and tested on a compute environment with the followin
 
 We use the **ICBHI 2017 Respiratory Sound Database**, fetched dynamically via HuggingFace (`DynamicSuperb/RespiratorySoundClassification_ICBHI2017`). The dataset includes recordings of patients with various respiratory diseases (COPD, Asthma, Pneumonia, Bronchiolitis, etc.) and healthy subjects.
 
-## 🧪 Experiments Pipeline
+## 🧪 The Prompt Engineering Journey (Experiments V1-V11)
 
-We have structured a graduated prompt engineering experiment spanning 8 versions, to systematically measure which techniques yield the highest performance:
+We structured a graduated prompt engineering experiment spanning 11 versions to systematically measure which techniques yield the highest performance. Here is the documentation of our findings and the motivations behind each step.
 
-| Version | Experiment Name | Description |
-| :--- | :--- | :--- |
-| **v1** | `baseline` | Bare-minimum instruction ("Detect the disease"). |
-| **v2** | `format_strict` | Baseline + Strict output formatting rules. |
-| **v3** | `symptoms_dict` | Adds a medical dictionary describing the *symptoms* of each disease. |
-| **v4** | `acoustic_dict` | Replaces symptoms with an **Acoustic Signatures** dictionary. |
-| **v5** | `cot` | Adds **Chain-of-Thought** reasoning instructions. |
-| **v6** | `few_shot` | Removes CoT, adds **Few-Shot Examples**. |
-| **v7** | `cot_and_few_shot` | Combines CoT + Few-Shot Examples. |
-| **v8** | `full_optimized` | v7 + explicit edge-case handling rules (e.g., corrupted audio). |
+### 1. The Baselines & Formatting
+*   **V1 (`baseline`)**: Bare-minimum instruction ("Detect the disease in this lung sound audio.").
+    *   **Goal**: Establish zero-shot capability.
+    *   **Result**: High hallucinations (24%), moderate diagnostic accuracy (27.2%), poor acoustic accuracy (12.5%).
+*   **V2 (`format_strict`)**: Baseline + Strict output formatting rules ("Output exactly as...").
+    *   **Goal**: Force a structured JSON/string output.
+    *   **Result**: **Total failure (0% accuracy)**. Strict text formatting caused the multimodal model to hyper-fixate on the string, crashing its reasoning.
+
+### 2. The Language of Audio
+*   **V3 (`symptoms_dict`)**: Added a medical dictionary describing the *symptoms* of each disease (e.g., "fever", "cough").
+    *   **Goal**: Give the model medical knowledge.
+    *   **Result**: **Hallucinations skyrocketed to 88%**. The model started "hearing" textual symptoms like chest tightness in raw audio. Diagnostic accuracy crashed to 7.8%.
+*   **V4 (`acoustic_dict`)**: Replaced symptoms with an **Acoustic Signatures** dictionary (e.g., "polyphonic wheezes", "coarse crackles").
+    *   **Goal**: Provide audio-specific grounding.
+    *   **Result**: **Massive improvement.** Acoustic accuracy jumped to 42.5%. We proved we must "speak to the model in audio terms".
+
+### 3. Chain-of-Thought (CoT)
+*   **V5 (`cot`)**: Added step-by-step reasoning instructions forcing the model to describe the raw audio *before* classifying.
+    *   **Goal**: Prevent impulsive guessing by forcing logical audio grounding.
+    *   **Result**: Acoustic accuracy hit 52.7%, and Diagnostic accuracy jumped to 37.0%.
+
+### 4. The Multimodal Few-Shot Challenge
+*   **V6 (`few_shot`) & V7 (`cot_and_few_shot`)**: Added text-based few-shot examples using pseudo-text placeholders like `[Audio containing crackles]`.
+    *   **Goal**: Teach the model format and reasoning via examples.
+    *   **Result**: **Total failure (6% diag acc, 82% hallucinations)**. Pseudo-text examples broke the multimodal alignment, causing the model to spam-guess diseases blindly.
+*   **V8 (`full_optimized`)**: Skipped few-shot entirely, utilizing V5 (CoT) + aggressive anti-hallucination guardrails.
+*   **V9 (`authentic_few_shot`)**: Engineered a complex **True Multimodal Few-Shot** pipeline. We dynamically loaded real `.wav` files of a Healthy and a COPD patient from the train split and passed them as raw audio tensors alongside CoT examples. Added strict anti-hallucination guardrails.
+    *   **Goal**: Restore multimodal alignment using authentic audio.
+    *   **Result**: Hallucinations crashed to 35%, but Diagnostic Accuracy plummeted to 11.8% because the guardrails were too aggressive, scaring the model into defaulting to "Healthy".
+
+### 5. The Holy Grail (V10)
+*   **V10 (`authentic_few_shot_holistic`)**: The Kitchen Sink. We created a **Holistic Dictionary** (combining both Clinical Context and Acoustic Signatures), combined with Authentic Few-Shot Audio Tensors, Chain-of-Thought, and Guardrails.
+    *   **Goal**: Bridge the model's text-LLM brain with its audio-encoder brain without causing it to panic.
+    *   **Result**: **"THE MOTHER OF ALL BOOMS"**. 
+        *   Avg Acoustic Accuracy: **64.00%**
+        *   Avg Diagnostic Accuracy: **60.00%**
+        *   Hallucination Rate: **35.00%**
+*   **V11 (`authentic_few_shot_no_guardrails`)**: V10 but removed the Holistic Dictionary and Guardrails to verify their necessity.
+    *   **Goal**: Ablation study.
+    *   **Result**: Diagnostic Accuracy crashed to 0%, proving the Holistic Dictionary and Guardrails in V10 were the ultimate missing link.
 
 ## 🚀 Setup & Usage
 

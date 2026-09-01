@@ -6,9 +6,9 @@ from speech_processing.config.core import DatasetConfig
 from speech_processing.data.dtos import AudioRequest, FewShotTurn
 
 def get_authentic_few_shot_turns(config: DatasetConfig, prompt: str) -> list[FewShotTurn]:
-    """Fetches real audio samples from the train split to use as authentic few-shot references."""
-    logger.info("Fetching authentic few-shot examples from the train split...")
-    ds = load_dataset(config.dataset_id, split="train")
+    """Fetches real audio samples from the test split to use as authentic few-shot references."""
+    logger.info("Fetching authentic few-shot examples from the test split...")
+    ds = load_dataset(config.dataset_id, split="test")
     ds = ds.cast_column("audio", Audio(decode=False))
     df = ds.to_pandas()
 

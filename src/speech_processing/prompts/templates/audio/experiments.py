@@ -54,6 +54,34 @@ Final Diagnosis: Asthma
 """
 
 
+dictionary_holistic = """
+Diagnostic Reference Dictionary:
+- COPD: 
+  * Acoustic Signature: Prolonged expiratory phase, early inspiratory coarse crackles, expiratory polyphonic wheezes.
+  * Clinical Context: Chronic Obstructive Pulmonary Disease, characterized by shortness of breath, chronic cough, and sputum production.
+- Asthma: 
+  * Acoustic Signature: High-pitched, continuous musical sounds predominantly during the expiratory phase.
+  * Clinical Context: Inflammatory disease of the airways causing wheezing, shortness of breath, chest tightness, and coughing.
+- Pneumonia: 
+  * Acoustic Signature: Localized late inspiratory fine crackles and bronchial breath sounds.
+  * Clinical Context: Infection that inflames air sacs in one or both lungs, which may fill with fluid or pus, causing cough with phlegm or pus, fever, chills, and difficulty breathing.
+- Bronchiectasis: 
+  * Acoustic Signature: Early and mid-inspiratory coarse crackles, sometimes with mid-inspiratory squeaks.
+  * Clinical Context: A condition in which the lungs' airways become damaged, making it hard to clear mucus, leading to repeated infections and coughing.
+- Bronchiolitis: 
+  * Acoustic Signature: High-pitched expiratory wheezes and fine inspiratory crackles, typically in infants.
+  * Clinical Context: A common lung infection in young children and infants that causes inflammation and congestion in the small airways (bronchioles) of the lung.
+- URTI: 
+  * Acoustic Signature: Transmitted upper airway sounds, stridor, and coarse transmitted rhonchi.
+  * Clinical Context: Upper Respiratory Tract Infection, an illness caused by an acute infection which involves the upper respiratory tract including the nose, sinuses, pharynx, or larynx.
+- LRTI: 
+  * Acoustic Signature: Variable crackles and wheezes, often widespread.
+  * Clinical Context: Lower Respiratory Tract Infection, encompassing acute bronchitis, pneumonia, and acute exacerbations of chronic lung diseases.
+- Healthy: 
+  * Acoustic Signature: Normal vesicular breath sounds, no adventitious sounds (no crackles, no wheezes).
+  * Clinical Context: No potential disease detected, clear breathing.
+"""
+
 class ExperimentMetadata:
     def __init__(self, name: str, prompt: str, max_new_tokens: int = 256, batch_size: int = 8):
         self.experiment_name = name
@@ -116,6 +144,18 @@ class ExperimentVersion(Enum):
         prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction + "\n\nCRITICAL INSTRUCTIONS:\n1. Do NOT hallucinate sounds. If you cannot confidently detect any specific disease acoustic signatures (crackles, wheezes, etc), you MUST output 'Final Diagnosis: Healthy' or 'Final Diagnosis: No potential disease detected'.\n2. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'.",
         max_new_tokens=512,
         batch_size=2  # Multi-audio context needs small batch size
+    )
+    V10 = ExperimentMetadata(
+        name="authentic_few_shot_holistic",
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_holistic + "\n" + cot_instruction + "\n\nCRITICAL INSTRUCTIONS:\n1. You will ONLY hear acoustic sounds, not clinical symptoms. Use the clinical context merely to understand the disease.\n2. Do NOT hallucinate sounds. If you cannot confidently detect any specific disease acoustic signatures (crackles, wheezes, etc), you MUST output 'Final Diagnosis: Healthy' or 'Final Diagnosis: No potential disease detected'.\n3. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'.",
+        max_new_tokens=512,
+        batch_size=2
+    )
+    V11 = ExperimentMetadata(
+        name="authentic_few_shot_no_guardrails",
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_acoustic + "\n" + cot_instruction,
+        max_new_tokens=512,
+        batch_size=2
     )
     
     @classmethod
