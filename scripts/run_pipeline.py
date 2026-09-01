@@ -26,13 +26,15 @@ def run_audio_phase(config: AppConfig, temp_file_path: str, prompt_version: str 
     
     # Optional Prompt Override
     if prompt_version != "original":
-        from speech_processing.prompts.templates.audio.experiments import PROMPT_EXPERIMENTS
-        if prompt_version not in PROMPT_EXPERIMENTS:
-            logger.error(f"Invalid prompt version: {prompt_version}")
-            raise ValueError(f"Invalid prompt version: {prompt_version}")
+        from speech_processing.prompts.templates.audio.experiments import ExperimentVersion
+        try:
+            experiment_meta = ExperimentVersion.get_version(prompt_version).value
+        except ValueError as e:
+            logger.error(str(e))
+            raise e
             
-        custom_instruction = PROMPT_EXPERIMENTS[prompt_version]
-        logger.info(f"Overriding dataset instructions with prompt version: {prompt_version}")
+        custom_instruction = experiment_meta.prompt
+        logger.info(f"Overriding dataset instructions with prompt version: {prompt_version} ({experiment_meta.experiment_name})")
         
         # Override the instruction in the DTO
         for req, _ in dataset_items:
@@ -145,8 +147,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run the Speech Processing Pipeline")
     parser.add_argument("--output-dir", type=str, default="./results", help="Directory to save artifacts")
     parser.add_argument("--num-samples", type=int, default=100, help="Number of dataset samples to evaluate")
-    parser.add_argument("--experiment-name", type=str, default="baseline", help="Name of the experiment (used for folder naming)")
-    parser.add_argument("--prompt-version", type=str, default="original", help="Which experimental prompt to use (e.g. v1, v4, etc.)")
+    parser.add_argument("--experiment", type=str, default="v1", help="Which experiment version to run (e.g., v1, v2, ..., v8)")
     args = parser.parse_args()
 
     # Pass the CLI arguments to AppConfig
@@ -154,8 +155,12 @@ def main():
     config = AppConfig(output_dir=args.output_dir)
     config.dataset.num_samples = args.num_samples
 
+    # Fetch experiment metadata
+    from speech_processing.prompts.templates.audio.experiments import ExperimentVersion
+    experiment_meta = ExperimentVersion.get_version(args.experiment).value
+
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    run_name = f"{args.experiment_name}_{timestamp}"
+    run_name = f"{experiment_meta.experiment_name}_{timestamp}"
     run_dir = os.path.join(config.output_dir, run_name)
     os.makedirs(run_dir, exist_ok=True)
 
@@ -164,7 +169,7 @@ def main():
     metrics_output = os.path.join(run_dir, "metrics.txt")
 
     # Phase 1: Audio Model
-    run_audio_phase(config, temp_file, prompt_version=args.prompt_version)
+    run_audio_phase(config, temp_file, prompt_version=args.experiment)
 
     # Free memory explicitly instead of relying on process termination
     release_vram()

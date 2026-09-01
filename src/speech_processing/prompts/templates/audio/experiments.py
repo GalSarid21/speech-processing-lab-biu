@@ -1,3 +1,5 @@
+from enum import Enum
+
 dictionary_symptoms = """
 Here is a medical dictionary of possible diseases:
 - COPD: Chronic Obstructive Pulmonary Disease, characterized by shortness of breath, chronic cough, and sputum production.
@@ -51,13 +53,50 @@ I detect high-pitched, continuous musical sounds predominantly during the expira
 Final Diagnosis: Asthma
 """
 
-PROMPT_EXPERIMENTS = {
-    "v1": "Detect the disease in this lung sound audio.",
-    "v2": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'",
-    "v3": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_symptoms,
-    "v4": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic,
-    "v5": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction,
-    "v6": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + few_shot_no_cot,
-    "v7": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot,
-    "v8": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot + "\nIf you cannot confidently detect any specific disease acoustic signatures, output 'Final Diagnosis: Healthy'. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'."
-}
+
+class ExperimentMetadata:
+    def __init__(self, name: str, prompt: str):
+        self.experiment_name = name
+        self.prompt = prompt
+
+
+class ExperimentVersion(Enum):
+    V1 = ExperimentMetadata(
+        name="baseline",
+        prompt="Detect the disease in this lung sound audio."
+    )
+    V2 = ExperimentMetadata(
+        name="format_strict",
+        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'"
+    )
+    V3 = ExperimentMetadata(
+        name="symptoms_dict",
+        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_symptoms
+    )
+    V4 = ExperimentMetadata(
+        name="acoustic_dict",
+        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic
+    )
+    V5 = ExperimentMetadata(
+        name="cot",
+        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction
+    )
+    V6 = ExperimentMetadata(
+        name="few_shot",
+        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + few_shot_no_cot
+    )
+    V7 = ExperimentMetadata(
+        name="cot_and_few_shot",
+        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot
+    )
+    V8 = ExperimentMetadata(
+        name="full_optimized",
+        prompt="Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot + "\nIf you cannot confidently detect any specific disease acoustic signatures, output 'Final Diagnosis: Healthy'. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'."
+    )
+    
+    @classmethod
+    def get_version(cls, version_str: str) -> "ExperimentVersion":
+        try:
+            return cls[version_str.upper()]
+        except KeyError:
+            raise ValueError(f"Invalid experiment version: {version_str}. Allowed values: {[e.name.lower() for e in cls]}")
