@@ -19,6 +19,7 @@ class DatasetConfig(BaseModel):
     target_labels: list[str]
     split: str
     num_samples: int = Field(default=100, description="Number of samples to evaluate")
+    sample_ids: list[str] = Field(default_factory=list, description="Specific sample IDs to load.")
 
 
 class AppConfig(BaseModel):

@@ -148,12 +148,29 @@ def main():
     parser.add_argument("--output-dir", type=str, default="./results", help="Directory to save artifacts")
     parser.add_argument("--num-samples", type=int, default=100, help="Number of dataset samples to evaluate")
     parser.add_argument("--experiment", type=str, default="v1", help="Which experiment version to run (e.g., v1, v2, ..., v8)")
+    parser.add_argument("--sample-ids-file", type=str, default=None, help="Path to a previous raw_output.jsonl file to enforce exact same samples")
     args = parser.parse_args()
 
     # Pass the CLI arguments to AppConfig
-    # We update the default DatasetConfig inside AppConfig to respect --num-samples
     config = AppConfig(output_dir=args.output_dir)
     config.dataset.num_samples = args.num_samples
+
+    if args.sample_ids_file and os.path.exists(args.sample_ids_file):
+        logger.info(f"Loading reference sample IDs from {args.sample_ids_file}")
+        ids = []
+        with open(args.sample_ids_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                if args.sample_ids_file.endswith(".jsonl"):
+                    # We can parse the JudgeResponse JSON
+                    data = json.loads(line)
+                    ids.append(data["request"]["sample_id"])
+                else:
+                    # Treat it as a raw text file containing one ID per line
+                    ids.append(line)
+        config.dataset.sample_ids = ids
 
     # Fetch experiment metadata
     from speech_processing.prompts.templates.audio.experiments import ExperimentVersion

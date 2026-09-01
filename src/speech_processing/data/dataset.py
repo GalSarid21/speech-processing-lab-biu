@@ -16,23 +16,34 @@ def load_icbhi_requests(config: DatasetConfig) -> list[tuple[AudioRequest, str]]
 
     df = ds.to_pandas()
 
-    # Filter dataset
-    filtered_df = df[
-        df["label"].str.contains("|".join(config.target_labels), case=False, na=False)
-    ]
-
-    num_samples = config.num_samples
-    if len(filtered_df) < num_samples:
-        logger.warning(
-            f"Only found {len(filtered_df)} matching samples. Padding with disjoint samples."
-        )
-        # Take all filtered, then pad from the inverse subset to avoid duplicates
-        remaining_needed = num_samples - len(filtered_df)
-        inverse_df = df[~df.index.isin(filtered_df.index)]
-        pad_df = inverse_df.sample(n=min(remaining_needed, len(inverse_df)), random_state=42)
-        sample_df = pd.concat([filtered_df, pad_df])
+    if config.sample_ids:
+        # Filter explicitly by the provided sample IDs
+        sample_df = df[df["file"].isin(config.sample_ids)]
+        found_ids = set(sample_df["file"].tolist())
+        missing_ids = set(config.sample_ids) - found_ids
+        
+        if missing_ids:
+            logger.warning(f"Could not find {len(missing_ids)} specified sample IDs (e.g. {list(missing_ids)[:3]})")
+        else:
+            logger.info("100% of specified sample IDs were successfully fetched.")
     else:
-        sample_df = filtered_df.sample(n=num_samples, random_state=42)
+        # Filter dataset by labels and pad if necessary
+        filtered_df = df[
+            df["label"].str.contains("|".join(config.target_labels), case=False, na=False)
+        ]
+
+        num_samples = config.num_samples
+        if len(filtered_df) < num_samples:
+            logger.warning(
+                f"Only found {len(filtered_df)} matching samples. Padding with disjoint samples."
+            )
+            # Take all filtered, then pad from the inverse subset to avoid duplicates
+            remaining_needed = num_samples - len(filtered_df)
+            inverse_df = df[~df.index.isin(filtered_df.index)]
+            pad_df = inverse_df.sample(n=min(remaining_needed, len(inverse_df)), random_state=42)
+            sample_df = pd.concat([filtered_df, pad_df])
+        else:
+            sample_df = filtered_df.sample(n=num_samples, random_state=42)
 
     results = []
     for _, row in sample_df.iterrows():
