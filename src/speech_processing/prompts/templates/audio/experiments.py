@@ -3,12 +3,10 @@ from enum import Enum
 dictionary_symptoms = """
 Here is a medical dictionary of possible diseases:
 - COPD: Chronic Obstructive Pulmonary Disease, characterized by shortness of breath, chronic cough, and sputum production.
-- Asthma: Inflammatory disease of the airways causing wheezing, shortness of breath, chest tightness, and coughing.
 - Bronchiectasis: Abnormal widening of the bronchi, leading to mucus build-up, frequent infections, and chronic cough.
 - Bronchiolitis: Inflammation of the bronchioles, usually in infants, causing coughing, wheezing, and difficulty breathing.
 - Pneumonia: Infection that inflames the air sacs in one or both lungs, which may fill with fluid or pus, causing cough with phlegm, fever, chills, and difficulty breathing.
 - URTI: Upper Respiratory Tract Infection, affecting the nose, sinuses, and throat, causing sneezing, nasal congestion, and sore throat.
-- LRTI: Lower Respiratory Tract Infection, affecting the airways and lungs, causing cough, fever, and shortness of breath.
 - Healthy: Normal lung function with no underlying pathology.
 """
 
@@ -59,9 +57,6 @@ Diagnostic Reference Dictionary:
 - COPD: 
   * Acoustic Signature: Prolonged expiratory phase, early inspiratory coarse crackles, expiratory polyphonic wheezes.
   * Clinical Context: Chronic Obstructive Pulmonary Disease, characterized by shortness of breath, chronic cough, and sputum production.
-- Asthma: 
-  * Acoustic Signature: High-pitched, continuous musical sounds predominantly during the expiratory phase.
-  * Clinical Context: Inflammatory disease of the airways causing wheezing, shortness of breath, chest tightness, and coughing.
 - Pneumonia: 
   * Acoustic Signature: Localized late inspiratory fine crackles and bronchial breath sounds.
   * Clinical Context: Infection that inflames air sacs in one or both lungs, which may fill with fluid or pus, causing cough with phlegm or pus, fever, chills, and difficulty breathing.
@@ -74,9 +69,6 @@ Diagnostic Reference Dictionary:
 - URTI: 
   * Acoustic Signature: Transmitted upper airway sounds, stridor, and coarse transmitted rhonchi.
   * Clinical Context: Upper Respiratory Tract Infection, an illness caused by an acute infection which involves the upper respiratory tract including the nose, sinuses, pharynx, or larynx.
-- LRTI: 
-  * Acoustic Signature: Variable crackles and wheezes, often widespread.
-  * Clinical Context: Lower Respiratory Tract Infection, encompassing acute bronchitis, pneumonia, and acute exacerbations of chronic lung diseases.
 - Healthy: 
   * Acoustic Signature: Normal vesicular breath sounds, no adventitious sounds (no crackles, no wheezes).
   * Clinical Context: No potential disease detected, clear breathing.
