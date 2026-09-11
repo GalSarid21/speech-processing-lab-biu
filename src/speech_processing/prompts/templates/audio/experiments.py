@@ -97,6 +97,24 @@ Diagnostic Reference Dictionary:
   * Clinical Context: No potential disease detected, clear breathing.
 """
 
+clinical_priors = """
+CLINICAL BASE RATES (Prior Probability):
+Please note that in this clinical environment, the diseases occur with the following natural frequencies. You MUST use these base rates to calibrate your uncertainty. If you are uncertain about the acoustic evidence, heavily favor the statistically likely classes:
+- COPD: ~35% (Highly Prevalent)
+- Healthy: ~20% (Prevalent)
+- Pneumonia: ~14% (Common)
+- URTI: ~14% (Common)
+- Bronchiectasis: ~9% (Rare)
+- Bronchiolitis: ~8% (Rare)
+"""
+
+cot_instruction_prior_aware = """
+First, describe the raw acoustic features you detect in the audio step-by-step.
+Second, cross-reference these features with the provided medical dictionary.
+Third, explicitly state the Clinical Base Rate of your suspected diseases to evaluate likelihood.
+Finally, output your predicted disease.
+"""
+
 class ExperimentMetadata:
     def __init__(self, name: str, prompt: str, max_new_tokens: int = 256, batch_size: int = 8):
         self.experiment_name = name
@@ -175,6 +193,30 @@ class ExperimentVersion(Enum):
     V12 = ExperimentMetadata(
         name="authentic_few_shot_holistic_honest",
         prompt="Detect the disease in this lung sound audio.\n" + dictionary_holistic + "\n" + cot_instruction + "\n\nCRITICAL INSTRUCTIONS:\n1. You will ONLY hear acoustic sounds, not clinical symptoms. Use the clinical context merely to understand the disease.\n2. HONESTY IS CRITICAL: Do NOT invent or hallucinate sounds to justify a diagnosis. If you suspect a disease based on the general sound profile but cannot clearly hear its classic acoustic signature (like crackles or wheezes), explicitly state: 'I do not clearly hear adventitious sounds.' You may still provide your best guess for the Final Diagnosis, but you must be honest about the raw audio.\n3. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'.",
+        max_new_tokens=512,
+        batch_size=2
+    )
+    V13 = ExperimentMetadata(
+        name="authentic_few_shot_regular_cot",
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_holistic + "\n" + cot_instruction + "\n\nCRITICAL INSTRUCTIONS:\n1. You will ONLY hear acoustic sounds, not clinical symptoms. Use the clinical context merely to understand the disease.\n2. HONESTY IS CRITICAL: Do NOT invent or hallucinate sounds to justify a diagnosis.",
+        max_new_tokens=512,
+        batch_size=2
+    )
+    V14 = ExperimentMetadata(
+        name="proportional_few_shot_regular_cot",
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_holistic + "\n" + cot_instruction + "\n\nCRITICAL INSTRUCTIONS:\n1. You will ONLY hear acoustic sounds, not clinical symptoms. Use the clinical context merely to understand the disease.\n2. HONESTY IS CRITICAL: Do NOT invent or hallucinate sounds to justify a diagnosis.",
+        max_new_tokens=512,
+        batch_size=2
+    )
+    V15 = ExperimentMetadata(
+        name="authentic_few_shot_prior_aware",
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_holistic + "\n" + clinical_priors + "\n" + cot_instruction_prior_aware + "\n\nCRITICAL INSTRUCTIONS:\n1. You will ONLY hear acoustic sounds, not clinical symptoms. Use the clinical context merely to understand the disease.\n2. HONESTY IS CRITICAL: Do NOT invent or hallucinate sounds to justify a diagnosis.\n3. Use Bayesian reasoning: Rare diseases (like Bronchiolitis) require OVERWHELMING acoustic evidence. If evidence is ambiguous, default to the highly prevalent classes (COPD/Healthy).",
+        max_new_tokens=512,
+        batch_size=2
+    )
+    V16 = ExperimentMetadata(
+        name="proportional_few_shot_prior_aware",
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_holistic + "\n" + clinical_priors + "\n" + cot_instruction_prior_aware + "\n\nCRITICAL INSTRUCTIONS:\n1. You will ONLY hear acoustic sounds, not clinical symptoms. Use the clinical context merely to understand the disease.\n2. HONESTY IS CRITICAL: Do NOT invent or hallucinate sounds to justify a diagnosis.\n3. Use Bayesian reasoning: Rare diseases (like Bronchiolitis) require OVERWHELMING acoustic evidence. If evidence is ambiguous, default to the highly prevalent classes (COPD/Healthy).",
         max_new_tokens=512,
         batch_size=2
     )

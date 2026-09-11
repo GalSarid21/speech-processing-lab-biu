@@ -38,11 +38,15 @@ def run_audio_phase(config: AppConfig, temp_file_path: str, prompt_version: str 
         
         # Override the instruction in the DTO
         
-        # Load authentic few-shot turns if running V9 or V10
+        # Load authentic few-shot turns if running an authentic experiment
         few_shot_turns = []
-        if "authentic_few_shot" in experiment_meta.experiment_name:
+        if "authentic_few_shot" in experiment_meta.experiment_name or "proportional_few_shot" in experiment_meta.experiment_name:
             from speech_processing.data.dataset import get_authentic_few_shot_turns
-            few_shot_turns = get_authentic_few_shot_turns(config.dataset, custom_instruction)
+            few_shot_turns = get_authentic_few_shot_turns(
+                config.dataset, 
+                custom_instruction,
+                experiment_name=experiment_meta.experiment_name
+            )
 
         for req, _ in dataset_items:
             req.instruction = custom_instruction

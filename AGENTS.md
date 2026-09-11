@@ -42,3 +42,6 @@ This document outlines the coding standards, architectural principles, and toolc
 - **Structured Logging:** Do not use scattered `print()` statements for debugging or operational flow. Default to a standard logger (like the built-in `logging` module or `loguru`) and include contextual information for easier debugging.
 - **Documentation:** Write clear, concise comments and docstrings. Provide the minimal description needed for future reference. Avoid over-commenting obvious logic; let the code speak for itself through expressive variable and function names.
 - **Imports:** Use direct imports and avoid relative imports for all internal imports. Avoid using `__all__` in `__init__.py` files unless explicitly exporting a well-defined public API.
+## 6. Agent Workflow & Hygiene
+- **Temporary Scripts & Artifacts:** Never write scratch scripts, test data, or temporary exploratory files directly to the repository root or project folders. ALWAYS use a temporary directory (like `/tmp/` or the agent's `scratch/` artifact directory).
+- **Repository Cleanliness:** If you absolutely must create temporary files in the repository to debug something, you MUST delete them and clean up after yourself before completing your turn. Do not leave behind uncommitted temporary artifacts.

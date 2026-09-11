@@ -5,7 +5,7 @@ from loguru import logger
 from speech_processing.config.core import DatasetConfig
 from speech_processing.data.dtos import AudioRequest, FewShotTurn
 
-def get_authentic_few_shot_turns(config: DatasetConfig, prompt: str) -> list[FewShotTurn]:
+def get_authentic_few_shot_turns(config: DatasetConfig, prompt: str, experiment_name: str) -> list[FewShotTurn]:
     """Fetches real audio samples from the test split to use as authentic few-shot references."""
     logger.info("Fetching authentic few-shot examples from the test split...")
     ds = load_dataset(config.dataset_id, split="test")
@@ -46,6 +46,30 @@ def get_authentic_few_shot_turns(config: DatasetConfig, prompt: str) -> list[Few
             "assistant_text": "I detect high-pitched expiratory wheezes and fine inspiratory crackles. Cross-referencing the dictionary, these match the classic acoustic signature of Bronchiolitis.\nFinal Diagnosis: Bronchiolitis"
         }
     ]
+
+    if "proportional" in experiment_name:
+        few_shot_configs.extend([
+            {
+                "file": "audio109.wav",
+                "class_name": "COPD",
+                "assistant_text": "I detect a prolonged expiratory phase along with early inspiratory coarse crackles and expiratory wheezes. Cross-referencing the dictionary, these match the classic acoustic signature of COPD.\nFinal Diagnosis: COPD"
+            },
+            {
+                "file": "audio111.wav",
+                "class_name": "COPD",
+                "assistant_text": "I detect a prolonged expiratory phase along with early inspiratory coarse crackles and expiratory wheezes. Cross-referencing the dictionary, these match the classic acoustic signature of COPD.\nFinal Diagnosis: COPD"
+            },
+            {
+                "file": "audio124.wav",
+                "class_name": "COPD",
+                "assistant_text": "I detect a prolonged expiratory phase along with early inspiratory coarse crackles and expiratory wheezes. Cross-referencing the dictionary, these match the classic acoustic signature of COPD.\nFinal Diagnosis: COPD"
+            },
+            {
+                "file": "audio118.wav",
+                "class_name": "Healthy",
+                "assistant_text": "I detect normal vesicular breath sounds without any adventitious sounds like crackles or wheezes. Cross-referencing the dictionary, these features indicate a Healthy patient.\nFinal Diagnosis: Healthy"
+            }
+        ])
 
     for config in few_shot_configs:
         sample_df = df[df["file"] == config["file"]]
