@@ -13,12 +13,10 @@ Here is a medical dictionary of possible diseases:
 dictionary_acoustic = """
 Here is a medical dictionary of possible diseases and their typical acoustic signatures:
 - COPD: Chronic Obstructive Pulmonary Disease. Acoustic signature: Prolonged expiratory phase, widespread expiratory polyphonic wheezes, and early inspiratory coarse crackles.
-- Asthma: Inflammatory disease of the airways. Acoustic signature: High-pitched, continuous musical sounds (wheezes), predominantly during expiration, but sometimes during both inspiration and expiration.
 - Bronchiectasis: Abnormal widening of the bronchi. Acoustic signature: Coarse crackles (often early to mid-inspiratory) that may clear or change after coughing, and sometimes high-pitched squawks.
 - Bronchiolitis: Inflammation of the bronchioles. Acoustic signature: Diffuse fine or coarse crackles (often high-pitched) and expiratory wheezes, typically in infants.
 - Pneumonia: Infection of the lung air sacs. Acoustic signature: Localized late inspiratory fine crackles, bronchial breath sounds, and potentially egophony (E-to-A transition).
 - URTI: Upper Respiratory Tract Infection. Acoustic signature: Generally normal lung sounds in the chest, but transmitted upper airway sounds (like rhonchi or stridor) may be heard.
-- LRTI: Lower Respiratory Tract Infection. Acoustic signature: Diffuse coarse crackles, rhonchi (low-pitched continuous sounds), and occasionally wheezes.
 - Healthy: Normal vesicular breath sounds. Soft, low-pitched rustling during inspiration, fading during the first third of expiration, with no adventitious (extra) sounds like crackles or wheezes.
 """
 
@@ -30,25 +28,50 @@ Finally, output your predicted disease.
 
 few_shot_no_cot = """
 Examples:
-Audio: [Audio containing localized late inspiratory fine crackles]
-Final Diagnosis: Pneumonia
-
-Audio: [Audio containing normal vesicular breath sounds]
+Audio: [Audio containing normal vesicular breath sounds without any adventitious sounds]
 Final Diagnosis: Healthy
 
-Audio: [Audio containing widespread expiratory polyphonic wheezes]
-Final Diagnosis: Asthma
+Audio: [Audio containing a prolonged expiratory phase along with early inspiratory coarse crackles and expiratory wheezes]
+Final Diagnosis: COPD
+
+Audio: [Audio containing localized late inspiratory fine crackles and bronchial breath sounds]
+Final Diagnosis: Pneumonia
+
+Audio: [Audio containing transmitted upper airway sounds, stridor, and coarse transmitted rhonchi]
+Final Diagnosis: URTI
+
+Audio: [Audio containing early and mid-inspiratory coarse crackles]
+Final Diagnosis: Bronchiectasis
+
+Audio: [Audio containing high-pitched expiratory wheezes and fine inspiratory crackles]
+Final Diagnosis: Bronchiolitis
 """
 
 few_shot_with_cot = """
 Examples:
-Audio: [Audio containing localized late inspiratory fine crackles]
-I detect localized late inspiratory fine crackles and bronchial breath sounds. Cross-referencing the dictionary, these features are the classic acoustic signature of Pneumonia.
+Audio: [Audio containing normal vesicular breath sounds without any adventitious sounds]
+I detect normal vesicular breath sounds without any adventitious sounds like crackles or wheezes. Cross-referencing the dictionary, these features indicate a Healthy patient.
+Final Diagnosis: Healthy
+
+Audio: [Audio containing a prolonged expiratory phase along with early inspiratory coarse crackles and expiratory wheezes]
+I detect a prolonged expiratory phase along with early inspiratory coarse crackles and expiratory wheezes. Cross-referencing the dictionary, these match the classic acoustic signature of COPD.
+Final Diagnosis: COPD
+
+Audio: [Audio containing localized late inspiratory fine crackles and bronchial breath sounds]
+I detect localized late inspiratory fine crackles and bronchial breath sounds. Cross-referencing the dictionary, these match the classic acoustic signature of Pneumonia.
 Final Diagnosis: Pneumonia
 
-Audio: [Audio containing high-pitched continuous musical sounds]
-I detect high-pitched, continuous musical sounds predominantly during the expiratory phase. Cross-referencing the dictionary, these wheezes match the acoustic signature of Asthma.
-Final Diagnosis: Asthma
+Audio: [Audio containing transmitted upper airway sounds, stridor, and coarse transmitted rhonchi]
+I detect transmitted upper airway sounds, stridor, and coarse transmitted rhonchi. Cross-referencing the dictionary, these match the classic acoustic signature of URTI.
+Final Diagnosis: URTI
+
+Audio: [Audio containing early and mid-inspiratory coarse crackles]
+I detect early and mid-inspiratory coarse crackles. Cross-referencing the dictionary, these match the classic acoustic signature of Bronchiectasis.
+Final Diagnosis: Bronchiectasis
+
+Audio: [Audio containing high-pitched expiratory wheezes and fine inspiratory crackles]
+I detect high-pitched expiratory wheezes and fine inspiratory crackles. Cross-referencing the dictionary, these match the classic acoustic signature of Bronchiolitis.
+Final Diagnosis: Bronchiolitis
 """
 
 

@@ -21,11 +21,11 @@ def test_dataset_filtering_and_padding(mocker, mock_dataset_config):
     mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
     mock_ds = mocker.MagicMock()
     
-    # 2 COPD, 1 Healthy, 2 Asthma (which should be filtered out)
+    # 2 COPD, 1 Healthy, 2 FakeDisease (which should be filtered out)
     df = pd.DataFrame({
         "instruction": ["prompt1", "prompt2", "prompt3", "prompt4", "prompt5"],
         "file": ["f1.wav", "f2.wav", "f3.wav", "f4.wav", "f5.wav"],
-        "label": ["COPD", "Asthma", "Healthy", "COPD", "Asthma"],
+        "label": ["COPD", "FakeDisease", "Healthy", "COPD", "FakeDisease"],
         "audio": [{"bytes": b"1"}, {"bytes": b"2"}, {"bytes": b"3"}, {"bytes": b"4"}, {"bytes": b"5"}]
     })
     
@@ -34,7 +34,7 @@ def test_dataset_filtering_and_padding(mocker, mock_dataset_config):
     mock_load_dataset.return_value = mock_ds
 
     # We ask for 5 samples, but only 3 are valid (COPD, Healthy, COPD).
-    # It should pad the remaining 2 with disjoint samples (the 2 Asthma ones).
+    # It should pad the remaining 2 with disjoint samples (the 2 FakeDisease ones).
     mock_dataset_config.num_samples = 5
     results = load_icbhi_requests(config=mock_dataset_config)
     
@@ -45,14 +45,14 @@ def test_dataset_filtering_and_padding(mocker, mock_dataset_config):
         assert_that(req.instruction).starts_with("prompt")
         assert_that(req.audio_path).ends_with(".wav")
         assert_that(req.audio_bytes).is_not_none()
-        assert_that(label).is_in("COPD", "Healthy", "Asthma")
+        assert_that(label).is_in("COPD", "Healthy", "FakeDisease")
     
     # Extract the labels that were returned
     returned_labels = [gt for _, gt in results]
     assert_that(returned_labels.count("COPD")).is_equal_to(2)
     assert_that(returned_labels.count("Healthy")).is_equal_to(1)
-    # The padding should have pulled the 2 Asthma samples
-    assert_that(returned_labels.count("Asthma")).is_equal_to(2)
+    # The padding should have pulled the 2 FakeDisease samples
+    assert_that(returned_labels.count("FakeDisease")).is_equal_to(2)
 
 
 def test_dataset_no_padding_needed(mocker, mock_dataset_config):

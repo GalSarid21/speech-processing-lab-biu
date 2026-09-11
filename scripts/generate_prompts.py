@@ -1,83 +1,82 @@
-import os
-import textwrap
+import argparse
+import json
 from pathlib import Path
 
-DATA_DIR = Path("data")
-DATA_DIR.mkdir(exist_ok=True)
+from loguru import logger
 
-dictionary_symptoms = """
-Here is a medical dictionary of possible diseases:
-- COPD: Chronic Obstructive Pulmonary Disease, characterized by shortness of breath, chronic cough, and sputum production.
-- Asthma: Inflammatory disease of the airways causing wheezing, shortness of breath, chest tightness, and coughing.
-- Bronchiectasis: Abnormal widening of the bronchi, leading to mucus build-up, frequent infections, and chronic cough.
-- Bronchiolitis: Inflammation of the bronchioles, usually in infants, causing coughing, wheezing, and difficulty breathing.
-- Pneumonia: Infection that inflames the air sacs in one or both lungs, which may fill with fluid or pus, causing cough with phlegm, fever, chills, and difficulty breathing.
-- URTI: Upper Respiratory Tract Infection, affecting the nose, sinuses, and throat, causing sneezing, nasal congestion, and sore throat.
-- LRTI: Lower Respiratory Tract Infection, affecting the airways and lungs, causing cough, fever, and shortness of breath.
-- Healthy: Normal lung function with no underlying pathology.
-"""
+from speech_processing.data.dtos import JudgeRequest
+from speech_processing.prompts.templates.audio.experiments import ExperimentVersion
+from speech_processing.prompts.templates.judge.qwen_judge import QwenICBHI2017JudgeTemplate
 
-dictionary_acoustic = """
-Here is a medical dictionary of possible diseases and their typical acoustic signatures:
-- COPD: Chronic Obstructive Pulmonary Disease. Acoustic signature: Prolonged expiratory phase, widespread expiratory polyphonic wheezes, and early inspiratory coarse crackles.
-- Asthma: Inflammatory disease of the airways. Acoustic signature: High-pitched, continuous musical sounds (wheezes), predominantly during expiration, but sometimes during both inspiration and expiration.
-- Bronchiectasis: Abnormal widening of the bronchi. Acoustic signature: Coarse crackles (often early to mid-inspiratory) that may clear or change after coughing, and sometimes high-pitched squawks.
-- Bronchiolitis: Inflammation of the bronchioles. Acoustic signature: Diffuse fine or coarse crackles (often high-pitched) and expiratory wheezes, typically in infants.
-- Pneumonia: Infection of the lung air sacs. Acoustic signature: Localized late inspiratory fine crackles, bronchial breath sounds, and potentially egophony (E-to-A transition).
-- URTI: Upper Respiratory Tract Infection. Acoustic signature: Generally normal lung sounds in the chest, but transmitted upper airway sounds (like rhonchi or stridor) may be heard.
-- LRTI: Lower Respiratory Tract Infection. Acoustic signature: Diffuse coarse crackles, rhonchi (low-pitched continuous sounds), and occasionally wheezes.
-- Healthy: Normal vesicular breath sounds. Soft, low-pitched rustling during inspiration, fading during the first third of expiration, with no adventitious (extra) sounds like crackles or wheezes.
-"""
 
-cot_instruction = """
-First, describe the raw acoustic features you detect in the audio step-by-step.
-Second, cross-reference these features with the provided medical dictionary.
-Finally, output your predicted disease.
-"""
+def export_audio_prompts(output_dir: Path):
+    """Exports all audio experiment prompts from the ExperimentVersion Enum."""
+    logger.info("Exporting audio experiment prompts...")
+    count = 0
+    for exp in ExperimentVersion:
+        filename = f"audio_experiment_{exp.name.lower()}.txt"
+        file_path = output_dir / filename
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(f"Experiment Name: {exp.value.experiment_name}\n")
+            f.write("=" * 40 + "\n")
+            f.write(exp.value.prompt.strip() + "\n")
+        count += 1
+    logger.info(f"Successfully exported {count} audio prompts to {output_dir}/")
 
-few_shot_no_cot = """
-Examples:
-Audio: [Audio containing localized late inspiratory fine crackles]
-Final Diagnosis: Pneumonia
 
-Audio: [Audio containing normal vesicular breath sounds]
-Final Diagnosis: Healthy
-
-Audio: [Audio containing widespread expiratory polyphonic wheezes]
-Final Diagnosis: Asthma
-"""
-
-few_shot_with_cot = """
-Examples:
-Audio: [Audio containing localized late inspiratory fine crackles]
-I detect localized late inspiratory fine crackles and bronchial breath sounds. Cross-referencing the dictionary, these features are the classic acoustic signature of Pneumonia.
-Final Diagnosis: Pneumonia
-
-Audio: [Audio containing high-pitched continuous musical sounds]
-I detect high-pitched, continuous musical sounds predominantly during the expiratory phase. Cross-referencing the dictionary, these wheezes match the acoustic signature of Asthma.
-Final Diagnosis: Asthma
-"""
-
-prompts = {
-    "v1_baseline.txt": "Detect the disease in this lung sound audio.",
+def export_judge_prompts(output_dir: Path):
+    """Exports the judge evaluation prompt with placeholder data."""
+    logger.info("Exporting judge prompt...")
+    template = QwenICBHI2017JudgeTemplate()
+    req = JudgeRequest(
+        sample_id="<SAMPLE_ID>",
+        instruction="<ORIGINAL_INSTRUCTION>",
+        generated_text="<MODEL_ANSWER>",
+        ground_truth="<GROUND_TRUTH_LABEL>"
+    )
     
-    "v2_format_strict.txt": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'",
+    conversation = template.build_conversation(req)
     
-    "v3_symptoms_dict.txt": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_symptoms,
-    
-    "v4_acoustic_dict.txt": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic,
-    
-    "v5_cot.txt": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction,
-    
-    "v6_few_shot.txt": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + few_shot_no_cot,
-    
-    "v7_cot_and_few_shot.txt": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot,
-    
-    "v8_full_optimized.txt": "Detect the disease in this lung sound audio.\nOutput your answer exactly as: 'Final Diagnosis: [Disease]'\n" + dictionary_acoustic + "\n" + cot_instruction + "\n" + few_shot_with_cot + "\nIf you cannot confidently detect any specific disease acoustic signatures, output 'Final Diagnosis: Healthy'. If the audio is completely corrupted or indecipherable, output 'Final Diagnosis: Cannot determine'."
-}
+    file_path = output_dir / "judge_prompt_template.txt"
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write("Judge Evaluation Conversation Template\n")
+        f.write("=" * 40 + "\n\n")
+        for turn in conversation:
+            f.write(f"[{turn['role'].upper()}]\n")
+            f.write(f"{turn['content']}\n")
+            f.write("-" * 40 + "\n\n")
+            
+    logger.info(f"Successfully exported 1 judge prompt to {output_dir}/")
 
-for filename, content in prompts.items():
-    with open(DATA_DIR / filename, "w") as f:
-        f.write(content.strip() + "\n")
 
-print(f"Generated {len(prompts)} prompts in {DATA_DIR}/")
+def main():
+    parser = argparse.ArgumentParser(description="Export prompts dynamically from the actual prompt classes.")
+    parser.add_argument(
+        "--type", 
+        type=str, 
+        choices=["audio", "judge", "all"], 
+        default="all", 
+        help="Which type of prompts to export (audio, judge, or all)"
+    )
+    parser.add_argument(
+        "--output-dir", 
+        type=str, 
+        default="data/exported_prompts", 
+        help="Directory to save the exported text files"
+    )
+    
+    args = parser.parse_args()
+    
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    if args.type in ("audio", "all"):
+        export_audio_prompts(output_dir)
+        
+    if args.type in ("judge", "all"):
+        export_judge_prompts(output_dir)
+        
+    logger.info("Done!")
+
+if __name__ == "__main__":
+    main()

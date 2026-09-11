@@ -11,7 +11,7 @@ class QwenICBHI2017JudgeTemplate(BasePromptTemplate):
             "### Context\n"
             "The ICBHI 2017 dataset contains specific labels.\n"
             '- Cycle-level acoustic classes: "Normal", "Crackle", "Wheeze", "Both" (Crackle and Wheeze).\n'
-            '- Patient-level diagnosis classes: "COPD", "Healthy", "URTI", "Bronchiectasis", "Pneumonia", "Bronchiolitis", "LRTI", "Asthma".\n\n'
+            '- Patient-level diagnosis classes: "COPD", "Healthy", "URTI", "Bronchiectasis", "Pneumonia", "Bronchiolitis".\n\n'
             "### Task\n"
             "You will be provided with a Ground Truth Label and a Model Answer. You must evaluate the Model Answer across multiple dimensions:\n"
             "- Acoustic Accuracy (0-10): Did it correctly identify the acoustic features (crackles/wheezes) described?\n"
