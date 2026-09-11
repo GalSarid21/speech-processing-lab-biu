@@ -15,17 +15,27 @@ EXPERIMENT_ORDER = [
     "cot",
     "few_shot",
     "cot_and_few_shot",
-    "full_optimized", # if it exists
+    "full_optimized",
     "authentic_few_shot",
     "authentic_few_shot_holistic",
-    "authentic_few_shot_no_guardrails"
+    "authentic_few_shot_no_guardrails",
+    "authentic_few_shot_holistic_honest",
+    "authentic_few_shot_prior_aware",
+    "proportional_few_shot_prior_aware",
+    "contrastive_few_shot",
+    "multi_turn_decomposition"
 ]
+
+from sklearn.metrics import f1_score
 
 def parse_metrics(jsonl_path):
     total = 0
     acoustic = 0
     diagnostic = 0
     hallucination = 0
+    y_true = []
+    y_pred = []
+    
     with open(jsonl_path, 'r') as f:
         for line in f:
             data = json.loads(line)
@@ -34,16 +44,38 @@ def parse_metrics(jsonl_path):
             diagnostic += eval_res.get("diagnostic_accuracy", 0)
             hallucination += eval_res.get("hallucination_penalty", 0)
             total += 1
+            
+            y_true.append(data.get("request", {}).get("ground_truth", ""))
+            y_pred.append(eval_res.get("extracted_disease_class", ""))
+            
     if total == 0:
         return None
+        
+    def normalize_label(label):
+        if label == "No potential disease detected":
+            return "Healthy"
+        if label == "None" or not label:
+            return "Unknown"
+        return label
+        
+    y_true_norm = [normalize_label(l) for l in y_true]
+    y_pred_norm = [normalize_label(l) for l in y_pred]
+        
+    macro_f1 = f1_score(y_true_norm, y_pred_norm, average='macro', zero_division=0) * 100
+    weighted_f1 = f1_score(y_true_norm, y_pred_norm, average='weighted', zero_division=0) * 100
+    
     return {
         "Acoustic Accuracy (%)": (acoustic / (total * 10)) * 100,
         "Diagnostic Accuracy (%)": (diagnostic / (total * 10)) * 100,
-        "Hallucination Rate (%)": (hallucination / total) * 100
+        "Hallucination Rate (%)": (hallucination / total) * 100,
+        "Macro F1 (%)": macro_f1,
+        "Weighted F1 (%)": weighted_f1
     }
 
+import sys
+
 def main():
-    results_dir = "results"
+    results_dir = sys.argv[1] if len(sys.argv) > 1 else "results"
     experiments = {}
     
     # Gather metrics for the latest run of each experiment
@@ -65,8 +97,8 @@ def main():
         
         metrics = parse_metrics(jsonl_path)
         if metrics is not None:
-            # Calculate composite score (invert hallucination so higher is better)
-            comp_score = (metrics["Acoustic Accuracy (%)"] + metrics["Diagnostic Accuracy (%)"] + (100 - metrics["Hallucination Rate (%)"])) / 3
+            # Calculate composite score (60% Diagnostic, 20% Acoustic, 20% Hallucination Inverse)
+            comp_score = 0.2 * metrics["Acoustic Accuracy (%)"] + 0.6 * metrics["Diagnostic Accuracy (%)"] + 0.2 * (100 - metrics["Hallucination Rate (%)"])
             metrics["Overall Score"] = comp_score
             metrics["Dir"] = run_dir
             
@@ -88,14 +120,16 @@ def main():
         
     # --- PLOTTING ---
     sns.set_theme(style="whitegrid")
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig, axes = plt.subplots(2, 3, figsize=(20, 12))
     fig.suptitle("Experiment Comparisons (Scatter Plots)", fontsize=16)
     
     metrics_to_plot = [
         ("Acoustic Accuracy (%)", axes[0, 0]),
         ("Diagnostic Accuracy (%)", axes[0, 1]),
-        ("Hallucination Rate (%)", axes[1, 0]),
-        ("Overall Score", axes[1, 1])
+        ("Hallucination Rate (%)", axes[0, 2]),
+        ("Macro F1 (%)", axes[1, 0]),
+        ("Weighted F1 (%)", axes[1, 1]),
+        ("Overall Score", axes[1, 2])
     ]
     
     x = range(len(df))
@@ -128,41 +162,53 @@ def main():
     baseline_row = df[df["Experiment"] == "baseline"].iloc[0]
     
     def format_multiplier(val, baseline_val, is_hallucination=False):
-        if baseline_val == 0:
+        if baseline_val == 0 and not is_hallucination:
             return f"{val:.1f}% (N/A)"
         
         if is_hallucination:
-            # For hallucination, we want drop. 24 -> 12 is 0.5x (or 2x reduction)
-            # Let's show it as a multiplier relative to baseline
-            mult = val / baseline_val
-            return f"{val:.1f}% ({mult:.2f}x)"
+            if val == baseline_val:
+                return f"{val:.1f}% (Unchanged)"
+            elif val > baseline_val:
+                mult = val / baseline_val if baseline_val > 0 else val
+                return f"{val:.1f}% ({mult:.1f}x Worse 🔴)"
+            else:
+                mult = baseline_val / val if val > 0 else float('inf')
+                if mult == float('inf'):
+                    return f"{val:.1f}% (100% Fixed 🟢)"
+                return f"{val:.1f}% ({mult:.1f}x Better 🟢)"
         else:
             mult = val / baseline_val
             return f"{val:.1f}% ({mult:.2f}x)"
 
     md_lines = []
     md_lines.append("## Experiment Comparisons\n")
-    md_lines.append("| Experiment | Acoustic Acc | Diagnostic Acc | Hallucination Rate | Overall Score |")
-    md_lines.append("| :--- | :--- | :--- | :--- | :--- |")
+    md_lines.append("| Experiment | Acoustic Acc | Diagnostic Acc | Hallucination Rate | Macro F1 | Weighted F1 | Overall Score |")
+    md_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
     
     # Find bests for bolding
     best_ac = df["Acoustic Accuracy (%)"].max()
     best_diag = df["Diagnostic Accuracy (%)"].max()
     best_halluc = df["Hallucination Rate (%)"].min()
+    best_macro = df["Macro F1 (%)"].max()
+    best_weighted = df["Weighted F1 (%)"].max()
     best_score = df["Overall Score"].max()
     
     for _, row in df.iterrows():
         ac_str = format_multiplier(row["Acoustic Accuracy (%)"], baseline_row["Acoustic Accuracy (%)"])
         diag_str = format_multiplier(row["Diagnostic Accuracy (%)"], baseline_row["Diagnostic Accuracy (%)"])
         hal_str = format_multiplier(row["Hallucination Rate (%)"], baseline_row["Hallucination Rate (%)"], is_hallucination=True)
+        macro_str = format_multiplier(row["Macro F1 (%)"], baseline_row["Macro F1 (%)"])
+        weighted_str = format_multiplier(row["Weighted F1 (%)"], baseline_row["Weighted F1 (%)"])
         score_str = format_multiplier(row["Overall Score"], baseline_row["Overall Score"])
         
         if row["Acoustic Accuracy (%)"] == best_ac: ac_str = f"**{ac_str}**"
         if row["Diagnostic Accuracy (%)"] == best_diag: diag_str = f"**{diag_str}**"
         if row["Hallucination Rate (%)"] == best_halluc: hal_str = f"**{hal_str}**"
+        if row["Macro F1 (%)"] == best_macro: macro_str = f"**{macro_str}**"
+        if row["Weighted F1 (%)"] == best_weighted: weighted_str = f"**{weighted_str}**"
         if row["Overall Score"] == best_score: score_str = f"**{score_str}**"
         
-        md_lines.append(f"| `{row['Experiment']}` | {ac_str} | {diag_str} | {hal_str} | {score_str} |")
+        md_lines.append(f"| `{row['Experiment']}` | {ac_str} | {diag_str} | {hal_str} | {macro_str} | {weighted_str} | {score_str} |")
         
     md_path = os.path.join(results_dir, "comparison_table.md")
     with open(md_path, "w") as f:

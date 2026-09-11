@@ -116,7 +116,7 @@ Finally, output your predicted disease.
 """
 
 class ExperimentMetadata:
-    def __init__(self, name: str, prompt: str, max_new_tokens: int = 256, batch_size: int = 8):
+    def __init__(self, name: str, prompt: str | list[str], max_new_tokens: int = 256, batch_size: int = 8):
         self.experiment_name = name
         self.prompt = prompt
         self.max_new_tokens = max_new_tokens
@@ -218,6 +218,22 @@ class ExperimentVersion(Enum):
         name="proportional_few_shot_prior_aware",
         prompt="Detect the disease in this lung sound audio.\n" + dictionary_holistic + "\n" + clinical_priors + "\n" + cot_instruction_prior_aware + "\n\nCRITICAL INSTRUCTIONS:\n1. You will ONLY hear acoustic sounds, not clinical symptoms. Use the clinical context merely to understand the disease.\n2. HONESTY IS CRITICAL: Do NOT invent or hallucinate sounds to justify a diagnosis.\n3. Use Bayesian reasoning: Rare diseases (like Bronchiolitis) require OVERWHELMING acoustic evidence. If evidence is ambiguous, default to the highly prevalent classes (COPD/Healthy).",
         max_new_tokens=512,
+        batch_size=2
+    )
+    V17 = ExperimentMetadata(
+        name="contrastive_few_shot",
+        prompt="Detect the disease in this lung sound audio.\n" + dictionary_holistic + "\nFirst, describe the raw acoustic features you detect in the test audio step-by-step. Second, compare it to the contrastive pairs provided in the examples. Finally, output your predicted disease.\n\nCRITICAL INSTRUCTIONS:\n1. You will ONLY hear acoustic sounds, not clinical symptoms. Use the clinical context merely to understand the disease.\n2. HONESTY IS CRITICAL: Do NOT invent or hallucinate sounds to justify a diagnosis.",
+        max_new_tokens=512,
+        batch_size=2
+    )
+    V18 = ExperimentMetadata(
+        name="multi_turn_decomposition",
+        prompt=[
+            "Step 1: Listen to the audio. Are there crackles? If yes, are they fine or coarse, and do they occur early or late in inspiration?",
+            "Step 2: Are there wheezes? If yes, are they polyphonic or monophonic, and do they occur in inspiration or expiration? Is the expiratory phase prolonged?",
+            "Step 3: Based on your acoustic findings and the medical dictionary, what is your Final Diagnosis? Remember, honesty is critical. Do not hallucinate sounds."
+        ],
+        max_new_tokens=256,
         batch_size=2
     )
     

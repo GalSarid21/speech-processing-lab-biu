@@ -71,17 +71,52 @@ def get_authentic_few_shot_turns(config: DatasetConfig, prompt: str, experiment_
             }
         ])
 
+    if "contrastive" in experiment_name:
+        # Override few-shot configs with contrastive pairs
+        few_shot_configs = [
+            {
+                "file": ["audio101.wav", "audio131.wav"],
+                "class_name": "COPD_vs_Bronchiectasis",
+                "assistant_text": "Audio 1 is COPD. Audio 2 is Bronchiectasis. Notice how Audio 1 has polyphonic wheezes and early coarse crackles, while Audio 2 has early to mid-inspiratory coarse crackles."
+            },
+            {
+                "file": ["audio133.wav", "audio16.wav"],
+                "class_name": "Pneumonia_vs_Bronchiolitis",
+                "assistant_text": "Audio 1 is Pneumonia. Audio 2 is Bronchiolitis. Notice how Audio 1 has localized late inspiratory fine crackles, while Audio 2 has high-pitched diffuse fine crackles and wheezes."
+            }
+        ]
+
     for config in few_shot_configs:
-        sample_df = df[df["file"] == config["file"]]
-        if not sample_df.empty:
-            row = sample_df.iloc[0]
-            audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
-            turns.append(FewShotTurn(
-                audio_bytes=audio_bytes,
-                audio_path=row["file"],
-                user_text=prompt,
-                assistant_text=config["assistant_text"]
-            ))
+        if isinstance(config["file"], list):
+            # Contrastive case: handle multiple audio files per turn
+            audio_bytes_list = []
+            audio_paths = []
+            for f in config["file"]:
+                sample_df = df[df["file"] == f]
+                if not sample_df.empty:
+                    row = sample_df.iloc[0]
+                    ab = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
+                    if ab:
+                        audio_bytes_list.append(ab)
+                        audio_paths.append(row["file"])
+            if len(audio_bytes_list) == len(config["file"]):
+                turns.append(FewShotTurn(
+                    audio_bytes=audio_bytes_list,
+                    audio_path=audio_paths,
+                    user_text=prompt,
+                    assistant_text=config["assistant_text"]
+                ))
+        else:
+            sample_df = df[df["file"] == config["file"]]
+            if not sample_df.empty:
+                row = sample_df.iloc[0]
+                audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
+                turns.append(FewShotTurn(
+                    audio_bytes=audio_bytes,
+                    audio_path=row["file"],
+                    user_text=prompt,
+                    assistant_text=config["assistant_text"]
+                ))
 
     logger.info(f"Successfully loaded {len(turns)} authentic few-shot turns.")
     return turns

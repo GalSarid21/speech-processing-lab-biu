@@ -2,14 +2,14 @@ from pydantic import BaseModel, Field
 
 
 class FewShotTurn(BaseModel):
-    audio_bytes: bytes
-    audio_path: str
+    audio_bytes: bytes | list[bytes]
+    audio_path: str | list[str]
     user_text: str
     assistant_text: str
 
 
 class AudioRequest(BaseModel):
-    instruction: str
+    instruction: str | list[str]
     audio_path: str
     audio_bytes: bytes | None = None
     few_shot_turns: list[FewShotTurn] = Field(default_factory=list)

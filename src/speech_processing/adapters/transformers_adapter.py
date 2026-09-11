@@ -14,7 +14,7 @@ class TransformersAdapter(BaseGenerationAdapter):
         self, texts: list[str], audios: list[Any], max_new_tokens: int = 256
     ) -> list[str]:
         inputs = self.processor(
-            text=texts, audios=audios, return_tensors="pt", padding=True
+            text=texts, audio=audios, return_tensors="pt", padding=True
         )
         inputs = inputs.to(self.model.device)
 

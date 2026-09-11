@@ -35,16 +35,17 @@ class QwenAudioEngine(BaseAudioModel):
 
         for i in range(0, len(requests), batch_size):
             batch_reqs = requests[i : i + batch_size]
-            texts = []
-            audios = []
+            
+            # Setup initial state
             valid_reqs = []
+            batch_conversations = []
+            batch_audios = []
 
             for req in batch_reqs:
                 conversation = []
                 req_audios = []
                 
                 try:
-                    # Helper to load audio
                     def load_audio(audio_bytes, audio_path):
                         if audio_bytes is not None:
                             return librosa.load(BytesIO(audio_bytes), sr=self.processor.feature_extractor.sampling_rate)[0]
@@ -55,64 +56,79 @@ class QwenAudioEngine(BaseAudioModel):
 
                     # 1. Add Few-Shot Turns
                     for turn in req.few_shot_turns:
-                        conversation.append({
-                            "role": "user",
-                            "content": [
-                                {"type": "audio", "audio_url": turn.audio_path},
-                                {"type": "text", "text": turn.user_text},
-                            ],
-                        })
-                        conversation.append({
-                            "role": "assistant",
-                            "content": [{"type": "text", "text": turn.assistant_text}]
-                        })
-                        req_audios.append(load_audio(turn.audio_bytes, turn.audio_path))
+                        content = []
+                        if isinstance(turn.audio_path, list):
+                            for p, b in zip(turn.audio_path, turn.audio_bytes):
+                                content.append({"type": "audio", "audio_url": p})
+                                req_audios.append(load_audio(b, p))
+                        else:
+                            content.append({"type": "audio", "audio_url": turn.audio_path})
+                            req_audios.append(load_audio(turn.audio_bytes, turn.audio_path))
+                        
+                        content.append({"type": "text", "text": turn.user_text})
+                        
+                        conversation.append({"role": "user", "content": content})
+                        conversation.append({"role": "assistant", "content": [{"type": "text", "text": turn.assistant_text}]})
 
-                    # 2. Add Target Turn
-                    conversation.append({
-                        "role": "user",
-                        "content": [
-                            {"type": "audio", "audio_url": req.audio_path},
-                            {"type": "text", "text": req.instruction},
-                        ],
-                    })
+                    # Pre-load target audio
                     req_audios.append(load_audio(req.audio_bytes, req.audio_path))
 
-                    text = self.processor.apply_chat_template(
-                        conversation, add_generation_prompt=True, tokenize=False
-                    )
-
-                    texts.append(text)
-                    
-                    # Qwen2AudioProcessor expects a flat list if passing a single text, 
-                    # but for batched texts it expects a list of lists of arrays
-                    # However, if it expects a flat list for batched text too, we will flatten it in the adapter. 
-                    # For now, pass list of lists.
-                    audios.append(req_audios)
+                    batch_conversations.append(conversation)
+                    batch_audios.append(req_audios)
                     valid_reqs.append(req)
                 except Exception as e:  # noqa: BLE001
                     logger.error(f"Failed to load audio {req.audio_path}: {e}")
 
-            if not texts:
+            if not valid_reqs:
                 continue
 
-            logger.info(f"Processing audio batch of size {len(valid_reqs)}...")
+            instructions = valid_reqs[0].instruction
+            if not isinstance(instructions, list):
+                instructions = [instructions]
+                
+            final_outputs = [""] * len(valid_reqs)
 
-            try:
-                # Use adapter to generate
-                generated_texts = self.adapter.generate_batch(
-                    texts=texts, audios=audios, max_new_tokens=self.config.max_new_tokens
-                )
+            for step, inst in enumerate(instructions):
+                texts = []
+                for idx, conv in enumerate(batch_conversations):
+                    if step == 0:
+                        content = [
+                            {"type": "audio", "audio_url": valid_reqs[idx].audio_path},
+                            {"type": "text", "text": inst},
+                        ]
+                    else:
+                        content = [{"type": "text", "text": inst}]
+                    
+                    conv.append({"role": "user", "content": content})
+                    texts.append(self.processor.apply_chat_template(conv, add_generation_prompt=True, tokenize=False))
 
-                for req, gen_text in zip(valid_reqs, generated_texts):
-                    responses.append(
-                        AudioResponse(
-                            sample_id=req.audio_path,
-                            instruction=req.instruction, 
-                            generated_text=gen_text
-                        )
+                logger.info(f"Processing audio batch of size {len(valid_reqs)} (Turn {step+1}/{len(instructions)})...")
+
+                try:
+                    generated_texts = self.adapter.generate_batch(
+                        texts=texts, audios=batch_audios, max_new_tokens=self.config.max_new_tokens
                     )
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"Failed to process batch: {e}")
+                    
+                    for idx, gen_text in enumerate(generated_texts):
+                        batch_conversations[idx].append({"role": "assistant", "content": [{"type": "text", "text": gen_text}]})
+                        if len(instructions) > 1:
+                            final_outputs[idx] += f"Turn {step+1} - User: {inst}\nAssistant: {gen_text}\n\n"
+                        else:
+                            final_outputs[idx] = gen_text
+                except Exception as e:  # noqa: BLE001
+                    logger.error(f"Failed to process batch on turn {step+1}: {e}")
+                    for idx in range(len(valid_reqs)):
+                        final_outputs[idx] += "\n[Error processing turn]"
+
+            for req, out_text, insts in zip(valid_reqs, final_outputs, [req.instruction for req in valid_reqs]):
+                # Store instruction as string for backwards compatibility with reporting
+                inst_str = str(insts) if isinstance(insts, list) else insts
+                responses.append(
+                    AudioResponse(
+                        sample_id=req.audio_path,
+                        instruction=inst_str, 
+                        generated_text=out_text.strip()
+                    )
+                )
 
         return responses
