@@ -17,8 +17,8 @@ from speech_processing.prompts.templates.judge.qwen_judge import (
 )
 
 
-def run_audio_phase(config: AppConfig, temp_file_path: str, prompt_version: str = "original"):
-    logger.info("--- [PHASE 1] AUDIO INFERENCE ---")
+def run_audio_phase(config: AppConfig, temp_file_paths: list[str], prompt_version: str = "original"):
+    logger.info(f"--- [PHASE 1] AUDIO INFERENCE ({len(temp_file_paths)} RUNS) ---")
     audio_engine = QwenAudioEngine(config.audio_model)
 
     # Load samples from the real dataset based on config
@@ -55,94 +55,104 @@ def run_audio_phase(config: AppConfig, temp_file_path: str, prompt_version: str 
     requests = [req for req, _ in dataset_items]
     ground_truths = [gt for _, gt in dataset_items]
 
-    # Evaluate using the maximal batch size internally configured in the engine
-    responses = audio_engine.batch_infer(requests)
+    for run_idx, temp_file_path in enumerate(temp_file_paths):
+        logger.info(f"Audio Inference: Run {run_idx + 1}/{len(temp_file_paths)}")
+        # Evaluate using the maximal batch size internally configured in the engine
+        responses = audio_engine.batch_infer(requests)
 
-    with open(temp_file_path, "w") as f:
-        f.writelines(
-            json.dumps(
-                {
-                    "sample_id": req.audio_path,
-                    "instruction": req.instruction,
-                    "generated_text": resp.generated_text,
-                    "ground_truth": gt,
-                }
+        with open(temp_file_path, "w") as f:
+            f.writelines(
+                json.dumps(
+                    {
+                        "sample_id": req.audio_path,
+                        "instruction": req.instruction,
+                        "generated_text": resp.generated_text,
+                        "ground_truth": gt,
+                    }
+                )
+                + "\n"
+                for req, resp, gt in zip(requests, responses, ground_truths)
             )
-            + "\n"
-            for req, resp, gt in zip(requests, responses, ground_truths)
-        )
 
-    logger.info(
-        f"Audio inference complete. Wrote {len(responses)} results to {temp_file_path}."
-    )
+        logger.info(
+            f"Run {run_idx + 1} audio inference complete. Wrote {len(responses)} results to {temp_file_path}."
+        )
     # audio_engine goes out of scope here, making it eligible for GC.
 
 
-def run_judge_phase(config: AppConfig, temp_file_path: str, output_file_path: str, metrics_file_path: str):
-    logger.info("--- [PHASE 2] JUDGE EVALUATION ---")
+def run_judge_phase(config: AppConfig, temp_file_paths: list[str], output_file_paths: list[str], metrics_file_paths: list[str]):
+    logger.info(f"--- [PHASE 2] JUDGE EVALUATION ({len(temp_file_paths)} RUNS) ---")
 
     # Inject template
     template = QwenICBHI2017JudgeTemplate()
     judge_engine = QwenJudge(config.judge, template=template)
 
-    judge_requests = []
-    if os.path.exists(temp_file_path):
-        with open(temp_file_path, "r") as f:
-            for line in f:
-                data = json.loads(line)
-                judge_requests.append(
-                    JudgeRequest(
-                        sample_id=data["sample_id"],
-                        instruction=data["instruction"],
-                        generated_text=data["generated_text"],
-                        ground_truth=data["ground_truth"],
-                    )
-                )
-
-    if not judge_requests:
-        logger.warning(f"No requests found in {temp_file_path}. Exiting.")
-        return
-
-    evaluations = judge_engine.batch_evaluate(judge_requests)
-
-    with open(output_file_path, "w") as f:
-        f.writelines(eval_resp.model_dump_json() + "\n" for eval_resp in evaluations)
-
     from speech_processing.evaluation.metrics import calculate_metrics
-    metrics = calculate_metrics(evaluations)
+    all_metrics = []
 
-    print("\n==============================================")
-    print("FINAL EVALUATION REPORT")
-    print("==============================================")
+    for run_idx, (temp_file, output_file, metrics_file) in enumerate(zip(temp_file_paths, output_file_paths, metrics_file_paths)):
+        logger.info(f"Judge Evaluation: Run {run_idx + 1}/{len(temp_file_paths)}")
+        judge_requests = []
+        if os.path.exists(temp_file):
+            with open(temp_file, "r") as f:
+                for line in f:
+                    data = json.loads(line)
+                    judge_requests.append(
+                        JudgeRequest(
+                            sample_id=data["sample_id"],
+                            instruction=data["instruction"],
+                            generated_text=data["generated_text"],
+                            ground_truth=data["ground_truth"],
+                        )
+                    )
 
-    for i, eval_item in enumerate(evaluations):
-        print(f"\n--- Sample {eval_item.request.sample_id} ---")
-        print(f"Instruction: {eval_item.request.instruction}")
-        print(f"True Label:  {eval_item.request.ground_truth}")
-        print(f"Qwen Output: {eval_item.request.generated_text}")
-        print(f"Predicted:   {eval_item.evaluation.extracted_disease_class}")
-        print(f"Acoustic:    {eval_item.evaluation.acoustic_accuracy}/10")
-        print(f"Diagnostic:  {eval_item.evaluation.diagnostic_accuracy}/10")
-        print(f"Hallucinated:{'Yes' if eval_item.evaluation.hallucination_penalty == 1 else 'No'}")
-        print(f"Reasoning:   {eval_item.evaluation.reasoning}")
-        print("-" * 30)
+        if not judge_requests:
+            logger.warning(f"No requests found in {temp_file}. Skipping run.")
+            all_metrics.append(None)
+            continue
 
-    if metrics:
-        report = (
-            f"--- AGGREGATE METRICS ---\n"
-            f"Avg Acoustic Accuracy:   {metrics.avg_acoustic_pct:.2f}%\n"
-            f"Avg Diagnostic Accuracy: {metrics.avg_diagnostic_pct:.2f}%\n"
-            f"Hallucination Rate:      {metrics.hallucination_rate_pct:.2f}%\n\n"
-            f"Classification Report:\n"
-            f"{metrics.classification_report}\n"
-        )
-        print(f"\n{report}")
-        
-        with open(metrics_file_path, "w") as f:
-            f.write(report)
-        logger.info(f"Aggregate metrics saved to {metrics_file_path}")
-    else:
-        print("\nAggregate Dataset Accuracy: 0/10 (0%)")
+        evaluations = judge_engine.batch_evaluate(judge_requests)
+
+        with open(output_file, "w") as f:
+            f.writelines(eval_resp.model_dump_json() + "\n" for eval_resp in evaluations)
+
+        metrics = calculate_metrics(evaluations)
+        all_metrics.append(metrics)
+
+        print(f"\n==============================================")
+        print(f"FINAL EVALUATION REPORT (Run {run_idx + 1})")
+        print(f"==============================================")
+
+        for i, eval_item in enumerate(evaluations):
+            print(f"\n--- Sample {eval_item.request.sample_id} ---")
+            print(f"Instruction: {eval_item.request.instruction}")
+            print(f"True Label:  {eval_item.request.ground_truth}")
+            print(f"Qwen Output: {eval_item.request.generated_text}")
+            print(f"Predicted:   {eval_item.evaluation.extracted_disease_class}")
+            print(f"Acoustic:    {eval_item.evaluation.acoustic_accuracy}/10")
+            print(f"Diagnostic:  {eval_item.evaluation.diagnostic_accuracy}/10")
+            print(f"Hallucinated:{'Yes' if eval_item.evaluation.hallucination_penalty == 1 else 'No'}")
+            print(f"Reasoning:   {eval_item.evaluation.reasoning}")
+            print("-" * 30)
+
+        if metrics:
+            report = (
+                f"--- AGGREGATE METRICS (Run {run_idx + 1}) ---\n"
+                f"Avg Acoustic Accuracy:   {metrics.avg_acoustic_pct:.2f}%\n"
+                f"Avg Diagnostic Accuracy: {metrics.avg_diagnostic_pct:.2f}%\n"
+                f"Hallucination Rate:      {metrics.hallucination_rate_pct:.2f}%\n\n"
+                f"Classification Report:\n"
+                f"{metrics.classification_report}\n"
+            )
+            print(f"\n{report}")
+            
+            with open(metrics_file, "w") as f:
+                f.write(report)
+            logger.info(f"Aggregate metrics for Run {run_idx + 1} saved to {metrics_file}")
+        else:
+            print("\nAggregate Dataset Accuracy: 0/10 (0%)")
+
+    return all_metrics
 
 
 def release_vram():
@@ -161,6 +171,7 @@ def main():
     parser.add_argument("--num-samples", type=int, default=100, help="Number of dataset samples to evaluate")
     parser.add_argument("--experiment", type=str, default="v1", help="Which experiment version to run (e.g., v1, v2, ..., v8)")
     parser.add_argument("--sample-ids-file", type=str, default=None, help="Path to a previous raw_output.jsonl file to enforce exact same samples")
+    parser.add_argument("--runs", type=int, default=1, help="Number of times to run the experiment for stability analysis")
     args = parser.parse_args()
 
     # Pass the CLI arguments to AppConfig
@@ -197,12 +208,17 @@ def main():
     run_dir = os.path.join(config.output_dir, run_name)
     os.makedirs(run_dir, exist_ok=True)
 
-    temp_file = os.path.join(run_dir, "temp_audio_preds.jsonl")
-    final_output = os.path.join(run_dir, "raw_output.jsonl")
-    metrics_output = os.path.join(run_dir, "metrics.txt")
+    temp_files = []
+    final_outputs = []
+    metrics_outputs = []
+    for i in range(args.runs):
+        suffix = f"_run{i+1}" if args.runs > 1 else ""
+        temp_files.append(os.path.join(run_dir, f"temp_audio_preds{suffix}.jsonl"))
+        final_outputs.append(os.path.join(run_dir, f"raw_output{suffix}.jsonl"))
+        metrics_outputs.append(os.path.join(run_dir, f"metrics{suffix}.txt"))
 
     # Phase 1: Audio Model
-    run_audio_phase(config, temp_file, prompt_version=args.experiment)
+    run_audio_phase(config, temp_files, prompt_version=args.experiment)
 
     # Free memory explicitly instead of relying on process termination
     release_vram()
@@ -211,10 +227,18 @@ def main():
     time.sleep(60)
 
     # Phase 2: Judge Model
-    run_judge_phase(config, temp_file, final_output, metrics_output)
+    all_metrics = run_judge_phase(config, temp_files, final_outputs, metrics_outputs)
     
     # Final cleanup (optional but good practice)
     release_vram()
+
+    if args.runs > 1:
+        from speech_processing.evaluation.stability import calculate_stability
+        stability_report = calculate_stability(all_metrics)
+        stability_file = os.path.join(run_dir, "stability_report.json")
+        with open(stability_file, "w") as f:
+            json.dump(stability_report, f, indent=4)
+        logger.info(f"Saved statistical stability report to {stability_file}")
 
 
 if __name__ == "__main__":
