@@ -13,8 +13,20 @@ class TransformersAdapter(BaseGenerationAdapter):
     def generate_batch(
         self, texts: list[str], audios: list[Any], max_new_tokens: int = 256
     ) -> list[str]:
+        # Qwen2AudioProcessor expects a flat list of audios, even for batched text!
+        flat_audios = []
+        for a in audios:
+            if isinstance(a, list):
+                flat_audios.extend(a)
+            else:
+                flat_audios.append(a)
+                
         inputs = self.processor(
-            text=texts, audio=audios, return_tensors="pt", padding=True
+            text=texts, 
+            audio=flat_audios, 
+            return_tensors="pt", 
+            padding=True,
+            sampling_rate=self.processor.feature_extractor.sampling_rate
         )
         inputs = inputs.to(self.model.device)
 
