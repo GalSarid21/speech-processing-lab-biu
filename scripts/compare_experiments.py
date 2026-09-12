@@ -9,6 +9,7 @@ from pathlib import Path
 # Define the expected order of experiments
 EXPERIMENT_ORDER = [
     "baseline",
+    "baseline_honest",
     "format_strict",
     "symptoms_dict",
     "acoustic_dict",
@@ -22,7 +23,6 @@ EXPERIMENT_ORDER = [
     "authentic_few_shot_holistic_honest",
     "authentic_few_shot_prior_aware",
     "proportional_few_shot_prior_aware",
-    "contrastive_few_shot",
     "multi_turn_decomposition"
 ]
 
@@ -82,6 +82,8 @@ def main():
     for run_dir in glob.glob(os.path.join(results_dir, "*/")):
         jsonl_path = os.path.join(run_dir, "raw_output.jsonl")
         if not os.path.exists(jsonl_path):
+            jsonl_path = os.path.join(run_dir, "raw_output_run1.jsonl")
+        if not os.path.exists(jsonl_path):
             continue
             
         dirname = os.path.basename(os.path.normpath(run_dir))
@@ -97,9 +99,25 @@ def main():
         
         metrics = parse_metrics(jsonl_path)
         if metrics is not None:
+            # Parse stability report
+            n_runs = 1
+            stability_val = "N/A"
+            stability_path = os.path.join(run_dir, "stability_report.json")
+            if os.path.exists(stability_path):
+                try:
+                    with open(stability_path, 'r') as sf:
+                        stab_data = json.load(sf)
+                        n_runs = stab_data.get("runs", 1)
+                        cv = stab_data.get("diagnostic_accuracy", {}).get("coefficient_of_variation_pct", 0.0)
+                        stability_val = f"{cv:.2f}%"
+                except Exception:
+                    pass
+            
             # Calculate composite score (60% Diagnostic, 20% Acoustic, 20% Hallucination Inverse)
             comp_score = 0.2 * metrics["Acoustic Accuracy (%)"] + 0.6 * metrics["Diagnostic Accuracy (%)"] + 0.2 * (100 - metrics["Hallucination Rate (%)"])
             metrics["Overall Score"] = comp_score
+            metrics["Runs"] = n_runs
+            metrics["Diag CV"] = stability_val
             metrics["Dir"] = run_dir
             
             # Keep latest if multiple
@@ -182,8 +200,8 @@ def main():
 
     md_lines = []
     md_lines.append("## Experiment Comparisons\n")
-    md_lines.append("| Experiment | Acoustic Acc | Diagnostic Acc | Hallucination Rate | Macro F1 | Weighted F1 | Overall Score |")
-    md_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+    md_lines.append("| Experiment | Runs | Diag CV | Acoustic Acc | Diagnostic Acc | Hallucination Rate | Macro F1 | Weighted F1 | Overall Score |")
+    md_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
     
     # Find bests for bolding
     best_ac = df["Acoustic Accuracy (%)"].max()
@@ -208,7 +226,10 @@ def main():
         if row["Weighted F1 (%)"] == best_weighted: weighted_str = f"**{weighted_str}**"
         if row["Overall Score"] == best_score: score_str = f"**{score_str}**"
         
-        md_lines.append(f"| `{row['Experiment']}` | {ac_str} | {diag_str} | {hal_str} | {macro_str} | {weighted_str} | {score_str} |")
+        runs_str = str(row["Runs"])
+        cv_str = str(row["Diag CV"])
+        
+        md_lines.append(f"| `{row['Experiment']}` | {runs_str} | {cv_str} | {ac_str} | {diag_str} | {hal_str} | {macro_str} | {weighted_str} | {score_str} |")
         
     md_path = os.path.join(results_dir, "comparison_table.md")
     with open(md_path, "w") as f:

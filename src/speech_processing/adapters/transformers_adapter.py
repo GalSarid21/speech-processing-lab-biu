@@ -31,13 +31,9 @@ class TransformersAdapter(BaseGenerationAdapter):
         inputs = inputs.to(self.model.device)
 
         with torch.no_grad():
-            # Explicitly force greedy decoding for determinism
             generate_ids = self.model.generate(
                 **inputs, 
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                temperature=None,
-                top_p=None
+                max_new_tokens=max_new_tokens
             )
 
         generate_ids = generate_ids[:, inputs.input_ids.size(1) :]

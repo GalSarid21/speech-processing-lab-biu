@@ -23,7 +23,7 @@ class AudioResponse(BaseModel):
 
 class JudgeRequest(BaseModel):
     sample_id: str
-    instruction: str
+    instruction: str | list[str]
     generated_text: str
     ground_truth: str
 
