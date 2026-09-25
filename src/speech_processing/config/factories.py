@@ -11,21 +11,40 @@ from speech_processing.config.core import (
 )
 
 def _parse_sample_ids(sample_ids_file: str | None) -> list[str]:
+    if not sample_ids_file:
+        logger.warning("No sample IDs file provided.")
+        return []
+    
     sample_ids = []
-    if sample_ids_file and os.path.exists(sample_ids_file):
+    if os.path.exists(sample_ids_file):
         logger.info(f"Loading reference sample IDs from {sample_ids_file}")
-        with open(sample_ids_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                if sample_ids_file.endswith(".jsonl"):
-                    data = json.loads(line)
-                    sample_ids.append(data["sample_id"])
-                else:
-                    sample_ids.append(line)
-    return sample_ids
+        
+        try:
+            with open(sample_ids_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if sample_ids_file.endswith(".jsonl"):
+                        data = json.loads(line)
+                        sample_ids.append(data["sample_id"])
+                    else:
+                        sample_ids.append(line)
+        except FileNotFoundError:
+            logger.error(f"Sample IDs file not found: {sample_ids_file}")
+            
+        except json.JSONDecodeError:
+            logger.error(f"Sample IDs file is not valid JSON: {sample_ids_file}")
+        
+        except Exception as e:
+            logger.error(f"An error occurred while loading sample IDs from {sample_ids_file}: {e}")
 
+    else:
+        logger.warning(f"Sample IDs file not found: {sample_ids_file}")
+        
+    
+    return sample_ids
+    
 def _build_model_kwargs(experiment_meta: ExperimentMeta) -> dict:
     is_text_only = getattr(experiment_meta, "experiment_name", "") == "text_only_llm"
     kwargs = {}
