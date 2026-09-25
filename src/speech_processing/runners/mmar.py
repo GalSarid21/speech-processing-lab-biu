@@ -88,6 +88,10 @@ def run_mmar(args):
         dataset_id="BoJack/MMAR",
         target_labels=[]
     )
+    
+    # Inject MMAR-specific paths dynamically
+    config.dataset.audio_base_dir = "data/MMAR"
+    config.dataset.transcripts_file = "data/mmar_transcripts.json"
 
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     run_name = f"mmar_{experiment_meta.experiment_name}_{timestamp}"

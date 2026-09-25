@@ -28,8 +28,10 @@ class DatasetConfig(BaseModel):
     dataset_id: str
     target_labels: list[str]
     split: str
-    num_samples: int = Field(default=100, description="Number of samples to evaluate")
+    num_samples: int | None = Field(default=None, description="Number of samples to evaluate. If None, uses all available.")
     sample_ids: list[str] = Field(default_factory=list, description="Specific sample IDs to load.")
+    audio_base_dir: str | None = Field(default=None, description="Base directory for local audio files.")
+    transcripts_file: str | None = Field(default=None, description="Path to transcripts JSON.")
 
 
 class ExperimentMeta(BaseModel):

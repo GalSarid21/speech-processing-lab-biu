@@ -4,59 +4,53 @@ import json
 import torch
 import librosa
 import numpy as np
-from pydantic import BaseModel, Field
+import yaml
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from datasets import load_dataset
 from tqdm import tqdm
 
 
-class TranscriptModelConfig(BaseModel):
-    """Configuration for the batched ASR pipeline."""
-    model_id: str = Field(default="openai/whisper-large-v3", description="HuggingFace model ID")
-    target_sample_rate: int = Field(default=16000, description="Sample rate required by the model")
-    chunk_length_s: int = Field(default=30, description="Chunk length for batched inference")
-    batch_size: int = Field(default=64, description="Batch size for GPU throughput")
-    attention_impl: str = Field(default="sdpa", description="Attention backend (sdpa = Flash Attention 2)")
-    language: str = Field(default="english", description="Target language")
-    task: str = Field(default="transcribe", description="Task (transcribe or translate)")
-    data_folder: str = Field(default="data", description="Base folder for artifacts")
-
-
-def audio_generator(items: list[dict], target_sr: int):
+def audio_generator(items: list[dict], target_sr: int, path_col: str):
     for item in items:
         try:
-            audio, sr = librosa.load(item["audio_path"], sr=target_sr)
+            audio, sr = librosa.load(item[path_col], sr=target_sr)
             yield {"raw": audio, "sampling_rate": sr}
         except Exception as e:
-            print(f"Error loading {item['audio_path']}: {e}")
+            print(f"Error loading {item[path_col]}: {e}")
             yield {"raw": np.zeros(target_sr), "sampling_rate": target_sr}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Preprocess Transcripts")
-    parser.add_argument("--dataset", type=str, required=True, choices=["icbhi", "mmar"], help="Which dataset to process")
+    parser = argparse.ArgumentParser(description="Preprocess Transcripts from YAML configuration")
+    parser.add_argument("--config", type=str, required=True, help="Path to YAML configuration file")
     args = parser.parse_args()
 
-    if args.dataset != "mmar":
-        print(f"Dataset {args.dataset} does not contain speech data requiring Whisper transcription.")
+    if not os.path.exists(args.config):
+        print(f"Config file {args.config} not found.")
         return
 
-    config = TranscriptModelConfig()
-    
-    target_ids_file = f"{config.data_folder}/mmar_experiment_sample_ids.txt"
-    few_shot_ids_file = f"{config.data_folder}/mmar_en_speech_few_shot_ids.txt"
-    output_json = f"{config.data_folder}/mmar_transcripts.json"
-    output_md = f"{config.data_folder}/mmar_transcripts_review.md"
+    with open(args.config, "r") as f:
+        config = yaml.safe_load(f)
+
+    # Extract configuration sections
+    ds_conf = config.get("dataset", {})
+    paths_conf = config.get("paths", {})
+    model_conf = config.get("model", {})
+
+    target_ids_files = paths_conf.get("target_ids_files", [])
+    output_json = paths_conf.get("output_json", "transcripts.json")
+    output_md = paths_conf.get("output_md", "transcripts_review.md")
+    audio_base_dir = paths_conf.get("audio_base_dir", "data")
 
     # Load target IDs
     target_ids = set()
-    for f_path in [target_ids_file, few_shot_ids_file]:
+    for f_path in target_ids_files:
         if os.path.exists(f_path):
             with open(f_path, "r") as f:
                 target_ids.update(line.strip() for line in f if line.strip())
 
     if not target_ids:
-        print(f"No target IDs found. Check if {target_ids_file} exists.")
+        print(f"No target IDs found. Check if your target_ids_files exist.")
         return
 
     print(f"Loaded {len(target_ids)} target IDs.")
@@ -64,14 +58,15 @@ def main():
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
-    print(f"Loading {config.model_id} onto {device} in {torch_dtype}...")
+    model_id = model_conf.get("id", "openai/whisper-large-v3")
+    print(f"Loading {model_id} onto {device} in {torch_dtype}...")
+    
     model = AutoModelForSpeechSeq2Seq.from_pretrained(
-        config.model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True
+        model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True
     )
     model.to(device)
-    processor = AutoProcessor.from_pretrained(config.model_id)
+    processor = AutoProcessor.from_pretrained(model_id)
 
-    # Configured for maximum throughput
     pipe = pipeline(
         "automatic-speech-recognition",
         model=model,
@@ -79,36 +74,46 @@ def main():
         feature_extractor=processor.feature_extractor,
         torch_dtype=torch_dtype,
         device=device,
-        model_kwargs={"attn_implementation": config.attention_impl}, 
-        chunk_length_s=config.chunk_length_s,
-        batch_size=config.batch_size,
-        generate_kwargs={"task": config.task, "language": config.language},
+        model_kwargs={"attn_implementation": model_conf.get("attention_impl", "sdpa")}, 
+        chunk_length_s=model_conf.get("chunk_length_s", 30),
+        batch_size=model_conf.get("batch_size", 64),
+        generate_kwargs={
+            "task": model_conf.get("task", "transcribe"), 
+            "language": model_conf.get("language", "english")
+        },
     )
 
-    print("Loading BoJack/MMAR dataset...")
-    ds = load_dataset('BoJack/MMAR', split='test', streaming=False)
+    dataset_id = ds_conf.get("id")
+    split = ds_conf.get("split", "test")
+    print(f"Loading dataset {dataset_id} [{split}]...")
+    ds = load_dataset(dataset_id, split=split, streaming=False)
     df = ds.to_pandas()
-    sample_df = df[df['id'].isin(target_ids)]
+    
+    id_col = ds_conf.get("id_column", "id")
+    audio_col = ds_conf.get("audio_path_column", "audio_path")
+    ref_col = ds_conf.get("reference_text_column", "question")
+    
+    sample_df = df[df[id_col].isin(target_ids)]
 
-    # Prepare data for batched generator
     dataset_items = []
     for _, row in sample_df.iterrows():
-        item_id = row['id']
-        audio_rel_path = row['audio_path']
-        audio_path = os.path.join(config.data_folder, "MMAR", audio_rel_path.lstrip('./'))
+        item_id = str(row[id_col])
+        audio_rel_path = str(row[audio_col])
+        audio_path = os.path.join(audio_base_dir, audio_rel_path.lstrip('./'))
         dataset_items.append({
             "id": item_id,
-            "question": row['question'],
+            "ref_text": str(row.get(ref_col, "")),
             "audio_path": audio_path
         })
 
     results = {}
-    md_lines = [f"# MMAR Transcripts Review ({config.model_id})\n", "| ID | Question | Whisper Transcript |", "|---|---|---|"]
+    md_lines = [f"# Transcripts Review ({model_id})\n", "| ID | Reference Text | Whisper Transcript |", "|---|---|---|"]
 
     print("Starting batched transcription...")
     
-    # Execute batched inference pipeline
-    generator = audio_generator(dataset_items, config.target_sample_rate)
+    target_sr = model_conf.get("target_sample_rate", 16000)
+    generator = audio_generator(dataset_items, target_sr, "audio_path")
+    
     for item, out in tqdm(zip(dataset_items, pipe(generator)), total=len(dataset_items)):
         item_id = item["id"]
         text = out.get("text", "").strip()
@@ -116,8 +121,9 @@ def main():
             text = "[TRANSCRIPTION FAILED OR SILENT]"
             
         results[item_id] = text
-        md_lines.append(f"| `{item_id}` | {item['question']} | {text} |")
+        md_lines.append(f"| `{item_id}` | {item['ref_text']} | {text} |")
 
+    os.makedirs(os.path.dirname(output_json), exist_ok=True)
     with open(output_json, "w") as f:
         json.dump(results, f, indent=2)
         

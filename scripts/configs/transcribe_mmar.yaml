@@ -1,0 +1,23 @@
+dataset:
+  id: "BoJack/MMAR"
+  split: "test"
+  id_column: "id"
+  audio_path_column: "audio_path"
+  reference_text_column: "question"
+  
+paths:
+  audio_base_dir: "data/MMAR"
+  target_ids_files:
+    - "data/mmar_en_speech_test_ids.txt"
+    - "data/mmar_en_speech_few_shot_ids.txt"
+  output_json: "data/mmar_transcripts.json"
+  output_md: "data/mmar_transcripts_review.md"
+
+model:
+  id: "openai/whisper-large-v3"
+  target_sample_rate: 16000
+  chunk_length_s: 30
+  batch_size: 64
+  attention_impl: "sdpa"
+  language: "english"
+  task: "transcribe"

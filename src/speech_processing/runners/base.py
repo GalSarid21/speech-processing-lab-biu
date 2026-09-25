@@ -8,7 +8,7 @@ def parse_args(description: str):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--dataset", type=str, required=True, choices=["icbhi", "mmar"], help="Which dataset pipeline to run")
     parser.add_argument("--output-dir", type=str, default="./results", help="Directory to save artifacts")
-    parser.add_argument("--num-samples", type=int, default=100, help="Number of dataset samples to evaluate")
+    parser.add_argument("--num-samples", type=int, default=None, help="Number of dataset samples to evaluate")
     parser.add_argument("--experiment", type=str, default="v1", help="Which experiment version to run")
     parser.add_argument("--sample-ids-file", type=str, default=None, help="Path to a previous raw_output.jsonl file")
     parser.add_argument("--runs", type=int, default=1, help="Number of times to run the experiment")
@@ -20,12 +20,14 @@ def create_experiment_config(args, experiment_meta, dataset_id: str, target_labe
     
     dataset_config: DatasetConfig = _create_experiment_dataset_config(args, dataset_id, target_labels)
 
-    text_model_config: TextModelConfig | None = None
-    audio_model_config: AudioModelConfig | None = None
+    kwargs = {
+        "output_dir": args.output_dir,
+        "dataset": dataset_config,
+    }
 
     # Configure models at instantiation based on experiment meta
     if is_text_only:
-        text_model_config = TextModelConfig(
+        kwargs["text_model"] = TextModelConfig(
             model_id="google/gemma-4-26B-A4B-it",
             dtype="bfloat16",
             max_num_seqs=getattr(experiment_meta, "batch_size", 4),
@@ -33,7 +35,7 @@ def create_experiment_config(args, experiment_meta, dataset_id: str, target_labe
             max_model_len=8192,
         )
     else:
-        audio_model = AudioModelConfig(
+        kwargs["audio_model"] = AudioModelConfig(
             model_id="Qwen/Qwen2-Audio-7B-Instruct",
             dtype="bfloat16",
             max_num_seqs=getattr(experiment_meta, "batch_size", 8),
@@ -41,12 +43,7 @@ def create_experiment_config(args, experiment_meta, dataset_id: str, target_labe
             max_model_len=8192,
         )
     
-    return AppConfig(
-        output_dir=args.output_dir,
-        dataset=dataset_config,
-        audio_model=audio_model_config,
-        text_model=text_model_config
-    )
+    return AppConfig(**kwargs)
 
 def _create_experiment_dataset_config(args, dataset_id: str, target_labels: list[str] = None) -> DatasetConfig:
     sample_ids = []
