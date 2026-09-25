@@ -72,8 +72,8 @@ def analyze_run(run_dir: str):
         print("No responses found to analyze.")
         sys.exit(0)
         
-    y_true = [resp.request.ground_truth for resp in responses]
-    y_pred = [resp.evaluation.extracted_disease_class for resp in responses]
+    y_true = [resp.ground_truth for resp in responses]
+    y_pred = [resp.evaluation.extracted_class for resp in responses]
     acoustic_scores = [resp.evaluation.acoustic_accuracy for resp in responses]
     diagnostic_scores = [resp.evaluation.diagnostic_accuracy for resp in responses]
     hallucination_scores = [resp.evaluation.hallucination_penalty for resp in responses]

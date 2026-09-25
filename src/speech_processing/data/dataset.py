@@ -3,7 +3,7 @@ from datasets import Audio, load_dataset
 from loguru import logger
 
 from speech_processing.config.core import DatasetConfig
-from speech_processing.data.dtos import AudioRequest, FewShotTurn
+from speech_processing.data.dtos import AudioRequest,FewShotTurn, TextRequest, BaseRequest
 
 def get_authentic_few_shot_turns(config: DatasetConfig, prompt: str, experiment_name: str) -> list[FewShotTurn]:
     """Fetches real audio samples from the test split to use as authentic few-shot references."""
@@ -87,8 +87,8 @@ def get_authentic_few_shot_turns(config: DatasetConfig, prompt: str, experiment_
     return turns
 
 
-def load_icbhi_requests(config: DatasetConfig) -> list[tuple[AudioRequest, str]]:
-    """Loads the ICBHI dataset, filters it, and returns a list of (AudioRequest, ground_truth)."""
+def load_icbhi_requests(config: DatasetConfig, is_text_only: bool = False) -> list[tuple[BaseRequest, str]]:
+    """Loads the ICBHI dataset, filters it, and returns a list of (Request, ground_truth)."""
     logger.info(f"Loading {config.dataset_id} dataset from HuggingFace...")
     ds = load_dataset(config.dataset_id, split=config.split)
     
@@ -128,14 +128,101 @@ def load_icbhi_requests(config: DatasetConfig) -> list[tuple[AudioRequest, str]]
 
     results = []
     for _, row in sample_df.iterrows():
-        audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
-        
-        req = AudioRequest(
-            instruction=row["instruction"], 
-            audio_path=row["file"],
-            audio_bytes=audio_bytes
-        )
+        if is_text_only:
+            req = TextRequest(
+                instruction=row["instruction"]
+            )
+        else:
+            audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
+            req = AudioRequest(
+                instruction=row["instruction"], 
+                audio_path=row["file"],
+                audio_bytes=audio_bytes
+            )
         results.append((req, row["label"]))
 
     logger.info(f"Successfully prepared {len(results)} samples from the dataset.")
+    return results
+
+def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only: bool = False) -> list[tuple[BaseRequest, str]]:
+    """Loads the MMAR dataset test split (from text files and HuggingFace)."""
+    import os
+    import json
+    logger.info("Loading BoJack/MMAR dataset...")
+    ds = load_dataset('BoJack/MMAR', split='test', streaming=False)
+    df = ds.to_pandas()
+    
+    # Check if a custom subset is provided via config (or hardcoded for now)
+    target_ids_file = "data/mmar_en_speech_test_ids.txt"
+    if config.sample_ids:
+        target_ids = set(config.sample_ids)
+    elif os.path.exists(target_ids_file):
+        with open(target_ids_file, "r") as f:
+            target_ids = set(line.strip() for line in f if line.strip())
+    else:
+        # Fallback to taking N samples
+        target_ids = set(df['id'].head(config.num_samples).tolist())
+
+    sample_df = df[df['id'].isin(target_ids)]
+    
+    # If config says num_samples = 100, we can take head(100)
+    if len(sample_df) > config.num_samples:
+        sample_df = sample_df.sample(n=config.num_samples, random_state=42)
+
+    # Load transcripts if they exist
+    transcripts = {}
+    transcripts_file = "data/mmar_transcripts.json"
+    if os.path.exists(transcripts_file):
+        with open(transcripts_file, "r") as f:
+            transcripts = json.load(f)
+
+    results = []
+    for _, row in sample_df.iterrows():
+        item_id = row['id']
+        question = row['question']
+        choices = row['choices']
+        if isinstance(choices, str):
+            import ast
+            try:
+                choices = ast.literal_eval(choices)
+            except (SyntaxError, ValueError):
+                pass
+        
+        answer = row['answer']
+        
+        audio_rel_path = row['audio_path']
+        audio_path = os.path.join("data/MMAR", audio_rel_path.lstrip('./'))
+        
+        transcript = transcripts.get(item_id, "[NO TRANSCRIPT]")
+        
+        if experiment_meta:
+            formatted_instruction = experiment_meta.prompt
+            if "transcript" in experiment_meta.experiment_name or "text_only" in experiment_meta.experiment_name:
+                formatted_instruction += f"\n\nTranscript: {transcript}"
+            formatted_instruction += f"\n\nQuestion: {question}\nChoices: {choices}"
+        else:
+            formatted_instruction = f"Question: {question}\nChoices: {choices}"
+        
+        if is_text_only:
+            req = TextRequest(
+                instruction=formatted_instruction,
+                metadata={
+                    "question": question,
+                    "choices": choices,
+                    "transcript": transcript
+                }
+            )
+        else:
+            req = AudioRequest(
+                instruction=formatted_instruction,
+                audio_path=audio_path,
+                metadata={
+                    "question": question,
+                    "choices": choices,
+                    "transcript": transcript
+                }
+            )
+        results.append((req, answer))
+
+    logger.info(f"Successfully prepared {len(results)} MMAR samples.")
     return results

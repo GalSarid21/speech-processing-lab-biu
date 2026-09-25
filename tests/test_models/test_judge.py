@@ -5,23 +5,12 @@ import pytest
 from assertpy import assert_that
 
 
-# Mock vLLM import since it is not installable on MacOS
-class DummyMock:
-    __path__ = []
-    def __getattr__(self, name):
-        return DummyMock()
-    def __call__(self, *args, **kwargs):
-        return DummyMock()
-    def __iter__(self):
-        return iter([])
-
-sys.modules['vllm'] = DummyMock()
 
 from speech_processing.config.core import JudgeConfig
 from speech_processing.data.dtos import JudgeRequest
 from speech_processing.models.judge import QwenJudge
-from speech_processing.prompts.templates.judge.qwen_judge import (
-    QwenICBHI2017JudgeTemplate,
+from speech_processing.prompts.templates.judge.qwen import (
+    build_icbhi_judge_conversation,
 )
 
 
@@ -49,12 +38,12 @@ def test_judge_batch_evaluate_success(mocker, mock_judge_config):
         "acoustic_accuracy": 9,
         "diagnostic_accuracy": 9,
         "hallucination_penalty": 0,
-        "extracted_disease_class": "COPD"
+        "extracted_class": "COPD"
     })
     mock_adapter.generate_batch.return_value = [valid_json]
 
-    template = QwenICBHI2017JudgeTemplate()
-    judge = QwenJudge(config=mock_judge_config, template=template)
+    template = build_icbhi_judge_conversation
+    judge = QwenJudge(config=mock_judge_config, template_func=template)
 
     requests = [JudgeRequest(sample_id="test_id", instruction="prompt", generated_text="answer", ground_truth="COPD")]
     responses = judge.batch_evaluate(requests)
@@ -63,7 +52,7 @@ def test_judge_batch_evaluate_success(mocker, mock_judge_config):
     
     eval_obj = responses[0].evaluation
     assert_that(eval_obj.acoustic_accuracy).is_equal_to(9)
-    assert_that(eval_obj.extracted_disease_class).is_equal_to("COPD")
+    assert_that(eval_obj.extracted_class).is_equal_to("COPD")
     
     # Ensure adapter was called correctly
     mock_adapter.generate_batch.assert_called_once()
@@ -77,8 +66,8 @@ def test_judge_batch_evaluate_json_fallback(mocker, mock_judge_config):
     # Simulate garbage string from vLLM (e.g. if guided_json fails or model hallucinates text)
     mock_adapter.generate_batch.return_value = ["This is not JSON!"]
 
-    template = QwenICBHI2017JudgeTemplate()
-    judge = QwenJudge(config=mock_judge_config, template=template)
+    template = build_icbhi_judge_conversation
+    judge = QwenJudge(config=mock_judge_config, template_func=template)
 
     requests = [JudgeRequest(sample_id="test_id", instruction="prompt", generated_text="answer", ground_truth="COPD")]
     responses = judge.batch_evaluate(requests)
@@ -90,4 +79,4 @@ def test_judge_batch_evaluate_json_fallback(mocker, mock_judge_config):
     assert_that(eval_obj.reasoning).is_equal_to("Parse failed.")
     assert_that(eval_obj.acoustic_accuracy).is_equal_to(0)
     assert_that(eval_obj.hallucination_penalty).is_equal_to(1)
-    assert_that(eval_obj.extracted_disease_class).is_equal_to("Unknown")
+    assert_that(eval_obj.extracted_class).is_equal_to("Unknown")

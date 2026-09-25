@@ -219,5 +219,14 @@ __marimo__/
 
 /results/
 setup_project.py
-data/
+/data/
 *.ipynb
+scripts/generate_notebook.py
+# Ignored Insights
+insights/
+
+todo/
+
+# Mac OS
+.DS_Store
+**/.DS_Store

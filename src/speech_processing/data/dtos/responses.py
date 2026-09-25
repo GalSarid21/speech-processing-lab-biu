@@ -1,31 +1,18 @@
 from pydantic import BaseModel, Field
 
 
-class FewShotTurn(BaseModel):
-    audio_bytes: bytes | list[bytes]
-    audio_path: str | list[str]
-    user_text: str
-    assistant_text: str
-
-
-class AudioRequest(BaseModel):
-    instruction: str | list[str]
-    audio_path: str
-    audio_bytes: bytes | None = None
-    few_shot_turns: list[FewShotTurn] = Field(default_factory=list)
-
-
-class AudioResponse(BaseModel):
-    sample_id: str
-    instruction: str
-    generated_text: str
-
-
-class JudgeRequest(BaseModel):
+class BaseResponse(BaseModel):
     sample_id: str
     instruction: str | list[str]
     generated_text: str
-    ground_truth: str
+
+
+class AudioResponse(BaseResponse):
+    pass
+
+
+class TextResponse(BaseResponse):
+    pass
 
 
 class EvaluationResult(BaseModel):
@@ -49,18 +36,13 @@ class EvaluationResult(BaseModel):
         le=1,
         description="1 if the model hallucinated or made up sounds not present, 0 otherwise.",
     )
-    extracted_disease_class: str = Field(
+    extracted_class: str = Field(
         description="The exact disease class the audio model predicted. Must be one of: COPD, Healthy, URTI, Bronchiectasis, Pneumonia, Bronchiolitis, LRTI, Asthma, or 'Unknown'"
     )
 
 
-class JudgeResponse(BaseModel):
-    request: JudgeRequest
+from speech_processing.data.dtos.requests import JudgeRequest
+
+class JudgeResponse(BaseResponse):
+    ground_truth: str
     evaluation: EvaluationResult
-
-
-class AggregateMetrics(BaseModel):
-    avg_acoustic_pct: float
-    avg_diagnostic_pct: float
-    hallucination_rate_pct: float
-    classification_report: str

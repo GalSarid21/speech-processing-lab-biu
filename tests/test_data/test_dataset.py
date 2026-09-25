@@ -76,3 +76,99 @@ def test_dataset_no_padding_needed(mocker, mock_dataset_config):
     returned_labels = [gt for _, gt in results]
     for label in returned_labels:
         assert_that(label).is_in("COPD", "Healthy")
+
+def test_load_mmar_requests(mocker, mock_dataset_config):
+    from speech_processing.data.dataset import load_mmar_requests
+    
+    mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
+    mock_ds = mocker.MagicMock()
+    
+    df = pd.DataFrame({
+        "id": ["ID1", "ID2", "ID3"],
+        "question": ["What sound is this?", "What accent?", "Is it loud?"],
+        # MMAR stores choices as literal string representation of a list
+        "choices": ["['Dog', 'Cat']", "['British', 'American']", "['Yes', 'No']"],
+        "answer": ["Dog", "British", "Yes"],
+        "audio_path": ["./audio/id1.wav", "./audio/id2.wav", "./audio/id3.wav"]
+    })
+    
+    mock_ds.to_pandas.return_value = df
+    mock_load_dataset.return_value = mock_ds
+    
+    # Mock OS paths and json loading for transcripts and IDs
+    mocker.patch("os.path.exists", side_effect=lambda x: True)
+    
+    # Mock the IDs file to only request ID1 and ID3
+    mocker.patch("builtins.open", mocker.mock_open(read_data="ID1\nID3\n"))
+    
+    # Mock json.load for transcripts
+    mocker.patch("json.load", return_value={"ID1": "Bark", "ID2": "Hello mate"})
+
+    results = load_mmar_requests(mock_dataset_config)
+    
+    # Should only return the 2 IDs we requested
+    assert_that(results).is_length(2)
+    
+    # Check ID1 (Has transcript)
+    req1, gt1 = results[0]
+    assert_that(gt1).is_equal_to("Dog")
+    assert_that(req1.audio_path).is_equal_to("data/MMAR/audio/id1.wav")
+    assert_that(req1.metadata["question"]).is_equal_to("What sound is this?")
+    assert_that(req1.metadata["choices"]).is_equal_to(["Dog", "Cat"]) # Evaluated list!
+    assert_that(req1.metadata["transcript"]).is_equal_to("Bark")
+    
+    # Check ID3 (No transcript)
+    req3, gt3 = results[1]
+    assert_that(gt3).is_equal_to("Yes")
+    assert_that(req3.metadata["transcript"]).is_equal_to("[NO TRANSCRIPT]")
+    assert_that(req3.metadata["choices"]).is_equal_to(["Yes", "No"])
+import sys
+import os
+import pytest
+from assertpy import assert_that
+import pandas as pd
+
+from speech_processing.config.core import DatasetConfig
+from speech_processing.data.dataset import load_mmar_requests
+from speech_processing.runners.mmar import ExperimentVersion
+
+def test_mmar_dynamic_prompt_injection(mocker):
+    # We want to test the string formatting logic inside load_mmar_requests
+    
+    mock_config = DatasetConfig(dataset_id="test", target_labels=["A", "B"], split="test", num_samples=1, sample_ids=["1"])
+    
+    # Mock huggingface load_dataset to return a tiny dataframe
+    mock_df = pd.DataFrame([{
+        "id": "1",
+        "question": "What is this?",
+        "choices": "['A', 'B']",
+        "answer": "A",
+        "audio_path": "./test.wav"
+    }])
+    
+    mock_ds = mocker.MagicMock()
+    mock_ds.to_pandas.return_value = mock_df
+    mocker.patch("speech_processing.data.dataset.load_dataset", return_value=mock_ds)
+    
+    # Mock transcript reading
+    mocker.patch("os.path.exists", return_value=True)
+    mocker.patch("builtins.open", mocker.mock_open(read_data='{"1": "Hello world"}'))
+    mocker.patch("json.load", return_value={"1": "Hello world"})
+    
+    # Run with V1 (Baseline - NO TRANSCRIPT)
+    meta_v1 = ExperimentVersion.get_version("v1").value
+    items_v1 = load_mmar_requests(mock_config, experiment_meta=meta_v1)
+    req_v1, _ = items_v1[0]
+    
+    assert_that(req_v1.instruction).does_not_contain("Hello world")
+    assert_that(req_v1.instruction).contains("What is this?")
+    assert_that(req_v1.instruction).contains("['A', 'B']")
+    
+    # Run with V3 (Transcript Augmented)
+    meta_v3 = ExperimentVersion.get_version("v3").value
+    items_v3 = load_mmar_requests(mock_config, experiment_meta=meta_v3)
+    req_v3, _ = items_v3[0]
+    
+    assert_that(req_v3.instruction).contains("Hello world")
+    assert_that(req_v3.instruction).contains("Transcript: Hello world")
+    assert_that(req_v3.instruction).contains("What is this?")

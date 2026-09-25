@@ -1,12 +1,14 @@
+import sys
 import pytest
 
+# Mock vLLM import globally for all tests since it is not installable on MacOS
+class DummyMock:
+    __path__ = []
+    def __getattr__(self, name):
+        return DummyMock()
+    def __call__(self, *args, **kwargs):
+        return DummyMock()
+    def __iter__(self):
+        return iter([])
 
-@pytest.fixture
-def sample_judge_request():
-    from speech_processing.data.dtos import JudgeRequest
-
-    return JudgeRequest(
-        instruction="Detect pathology",
-        generated_text="I detect fine crackles.",
-        ground_truth="Fine crackles",
-    )
+sys.modules['vllm'] = DummyMock()

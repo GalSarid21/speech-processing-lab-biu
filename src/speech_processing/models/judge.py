@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 
 from loguru import logger
 from vllm import LLM, SamplingParams
@@ -7,13 +8,12 @@ from speech_processing.adapters.vllm_adapter import VLLMAdapter
 from speech_processing.config.core import JudgeConfig
 from speech_processing.data.dtos import EvaluationResult, JudgeRequest, JudgeResponse
 from speech_processing.models.base import BaseJudgeModel
-from speech_processing.prompts.base import BasePromptTemplate
 
 
 class QwenJudge(BaseJudgeModel):
-    def __init__(self, config: JudgeConfig, template: BasePromptTemplate) -> None:
+    def __init__(self, config: JudgeConfig, template_func: Callable[[JudgeRequest], list[dict[str, str]]]) -> None:
         self.config = config
-        self.template = template
+        self.template_func = template_func
 
         logger.info(f"Loading Judge Model from {config.model_id} via vLLM...")
 
@@ -32,7 +32,7 @@ class QwenJudge(BaseJudgeModel):
     def batch_evaluate(self, requests: list[JudgeRequest]) -> list[JudgeResponse]:
         prompts = []
         for req in requests:
-            conversation = self.template.build_conversation(req)
+            conversation = self.template_func(req)
             prompt_str = self.tokenizer.apply_chat_template(
                 conversation, add_generation_prompt=True, tokenize=False
             )
@@ -81,9 +81,15 @@ class QwenJudge(BaseJudgeModel):
                     acoustic_accuracy=0,
                     diagnostic_accuracy=0,
                     hallucination_penalty=1,
-                    extracted_disease_class="Unknown"
+                    extracted_class="Unknown"
                 )
 
-            responses.append(JudgeResponse(request=req, evaluation=evaluation))
+            responses.append(JudgeResponse(
+                sample_id=req.sample_id,
+                instruction=req.instruction,
+                generated_text=req.generated_text,
+                ground_truth=req.ground_truth,
+                evaluation=evaluation
+            ))
 
         return responses

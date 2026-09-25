@@ -5,12 +5,20 @@ from speech_processing.data.dtos import (
     AudioResponse,
     JudgeRequest,
     JudgeResponse,
+    TextRequest,
+    TextResponse
 )
 
 
 class BaseAudioModel(abc.ABC):
     @abc.abstractmethod
     def batch_infer(self, requests: list[AudioRequest]) -> list[AudioResponse]:
+        pass
+
+
+class BaseTextModel(abc.ABC):
+    @abc.abstractmethod
+    def batch_infer(self, requests: list[TextRequest]) -> list[TextResponse]:
         pass
 
 

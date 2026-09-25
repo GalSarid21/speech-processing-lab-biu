@@ -1,7 +1,7 @@
 from sklearn.metrics import classification_report
 
-from speech_processing.data.dtos import (
-    AggregateMetrics,
+from speech_processing.data.dtos.metrics import AggregateMetrics
+from speech_processing.data.dtos.responses import (
     EvaluationResult,
     JudgeResponse,
 )
@@ -36,8 +36,8 @@ def calculate_metrics(evaluations: list[JudgeResponse]) -> AggregateMetrics | No
     avg_hallucination = (total_hallucination / num_evals) * _PCT
 
     # Classification Metrics
-    y_true = [eval.request.ground_truth for eval in evaluations]
-    y_pred = [eval.evaluation.extracted_disease_class for eval in evaluations]
+    y_true = [eval.ground_truth for eval in evaluations]
+    y_pred = [eval.evaluation.extracted_class for eval in evaluations]
 
     # zero_division=0 to prevent warnings if a class was completely missed
     clf_report = classification_report(y_true, y_pred, zero_division=0)

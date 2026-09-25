@@ -3,7 +3,7 @@ from assertpy import assert_that
 
 from speech_processing.config.core import AudioModelConfig
 from speech_processing.data.dtos import AudioRequest
-from speech_processing.models.audio_model import QwenAudioEngine
+from speech_processing.models.audio import QwenAudioEngine
 
 
 @pytest.fixture
@@ -13,15 +13,16 @@ def mock_audio_config():
         dtype="float32",
         max_num_seqs=2,
         max_new_tokens=100,
+        max_model_len=1024,
     )
 
 
 def test_audio_batch_infer(mocker, mock_audio_config):
-    mocker.patch("speech_processing.models.audio_model.Qwen2AudioForConditionalGeneration")
-    mocker.patch("speech_processing.models.audio_model.AutoProcessor")
-    mock_adapter_class = mocker.patch("speech_processing.models.audio_model.TransformersAdapter")
-    mock_librosa = mocker.patch("speech_processing.models.audio_model.librosa")
-    mock_urlopen = mocker.patch("speech_processing.models.audio_model.urlopen")
+    mocker.patch("speech_processing.models.audio.Qwen2AudioForConditionalGeneration")
+    mocker.patch("speech_processing.models.audio.AutoProcessor")
+    mock_adapter_class = mocker.patch("speech_processing.models.audio.TransformersAdapter")
+    mock_librosa = mocker.patch("speech_processing.models.audio.librosa")
+    mock_urlopen = mocker.patch("speech_processing.models.audio.urlopen")
     # Setup mocks
     mock_urlopen.return_value.read.return_value = b"fake audio data"
     mock_librosa.load.return_value = (mocker.MagicMock(), 16000)

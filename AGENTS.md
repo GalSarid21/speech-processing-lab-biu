@@ -28,6 +28,11 @@ This document outlines the coding standards, architectural principles, and toolc
 - **DRY (Don't Repeat Yourself):** Abstract duplicated logic into reusable functions, methods, or base classes.
 - **Design Patterns:** Proactively employ industry-standard design patterns to solve common architectural problems (e.g., Factory, Builder, Facade, Adapter, Strategy, Singleton, Observer, etc.).
 - **Single Source of Truth:** When creating configs and submodules, follow the rule of single source of truth - e.g avoid default typing for every config class implemented as pydantic and have a single "wrapping" config object that has all the submodules and ONLY IN IT set all the specific types. This approach would help to control every parameter in a single object, and avoid the need to import multiple config classes from different places.
+- **Anti-Magic:** Strictly avoid "magic numbers" and "magic strings" scattered throughout the logic. Extract configuration values, model paths, dataset names, and thresholds into module-level constants or Pydantic configuration objects. 
+  - *Exception 1 (Idiomatic Python):* Standard structural numbers are perfectly fine (e.g., `list[-1]`, `if count > 0`, `return 1`).
+  - *Exception 2 (Visualization & CLI):* Highly specific, ad-hoc string labels and layout numbers in data visualization libraries (like `matplotlib`, `seaborn`, `plotly`) or CLI flag descriptions (like `argparse`) do not need to be extracted into constants.
+- **Pythonic Namespacing (No Stateless Classes):** Avoid creating classes that only contain `@staticmethod` or `@classmethod` if the class has no state. In Python, modules themselves are the namespaces. Use module-level functions for stateless operations (like factories) instead of empty classes.
+- **Short Naming Convention:** Do not repeat the parent directory name in the file name. For example, use `models/audio.py` instead of `models/audio_model.py`, and `factories/pipeline.py` instead of `factories/pipeline_factory.py`.
 
 ## 4. Execution & Flow Control
 - **Error Handling & Exceptions:** Avoid bare `except:` blocks. Always catch specific exceptions. Define custom exception classes that inherit from a base project exception where appropriate.
@@ -39,6 +44,7 @@ This document outlines the coding standards, architectural principles, and toolc
   - **Strictly `pytest`:** Use only `pytest`. The built-in `unittest` package is strictly forbidden.
   - **Assertions with `assertpy`:** Utilize the `assertpy` library for all test assertions (e.g., `assert_that`, `soft_assertions`) rather than standard Python `assert` statements.
   - **Data-Driven Testing:** Make tests as data-driven as possible. Write generalized test functions and feed them varying inputs and expected outputs using `@pytest.mark.parametrize` to eliminate repetitive, hardcoded test cases.
+  - **Meaningful Coverage Only:** Do not blindly add tests just to inflate the test count. Only write tests that guard critical logic, edge cases, or complex data transformations. Whenever you refactor or add new logic, proactively assess if a new *meaningful* test is applicable to protect the system's structural integrity.
 - **Structured Logging:** Do not use scattered `print()` statements for debugging or operational flow. Default to a standard logger (like the built-in `logging` module or `loguru`) and include contextual information for easier debugging.
 - **Documentation:** Write clear, concise comments and docstrings. Provide the minimal description needed for future reference. Avoid over-commenting obvious logic; let the code speak for itself through expressive variable and function names.
 - **Imports:** Use direct imports and avoid relative imports for all internal imports. Avoid using `__all__` in `__init__.py` files unless explicitly exporting a well-defined public API.

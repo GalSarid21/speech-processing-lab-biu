@@ -7,10 +7,12 @@ from speech_processing.evaluation.metrics import calculate_metrics
 def test_calculate_metrics():
     req = JudgeRequest(sample_id="test_id", instruction="", generated_text="", ground_truth="COPD")
     resp1 = JudgeResponse(
-        request=req, evaluation=EvaluationResult(reasoning="pass", acoustic_accuracy=8, diagnostic_accuracy=10, hallucination_penalty=0, extracted_disease_class="COPD")
+        sample_id=req.sample_id, instruction=req.instruction, generated_text=req.generated_text, ground_truth=req.ground_truth,
+        evaluation=EvaluationResult(reasoning="pass", acoustic_accuracy=8, diagnostic_accuracy=10, hallucination_penalty=0, extracted_class="COPD")
     )
     resp2 = JudgeResponse(
-        request=req, evaluation=EvaluationResult(reasoning="fail", acoustic_accuracy=2, diagnostic_accuracy=0, hallucination_penalty=1, extracted_disease_class="Healthy")
+        sample_id=req.sample_id, instruction=req.instruction, generated_text=req.generated_text, ground_truth=req.ground_truth,
+        evaluation=EvaluationResult(reasoning="fail", acoustic_accuracy=2, diagnostic_accuracy=0, hallucination_penalty=1, extracted_class="Healthy")
     )
 
     metrics = calculate_metrics([resp1, resp2, resp1])
