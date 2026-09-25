@@ -51,3 +51,5 @@ This document outlines the coding standards, architectural principles, and toolc
 ## 6. Agent Workflow & Hygiene
 - **Temporary Scripts & Artifacts:** Never write scratch scripts, test data, or temporary exploratory files directly to the repository root or project folders. ALWAYS use a temporary directory (like `/tmp/` or the agent's `scratch/` artifact directory).
 - **Repository Cleanliness:** If you absolutely must create temporary files in the repository to debug something, you MUST delete them and clean up after yourself before completing your turn. Do not leave behind uncommitted temporary artifacts.
+- **Git Restrictions:** NEVER execute `git commit` or `git push` under any circumstances unless explicitly, unambiguously requested by the user. Modify local files only, and leave the staging/committing/pushing process strictly to the human reviewer.
+- **No Config Mutation (No Injection):** Never mutate configuration objects (like Pydantic models) after they are initialized. All values must be passed during the object's initialization constructor. Mutating state post-initialization (`config.dataset.path = "..."`) is a strict code smell.

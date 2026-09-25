@@ -32,6 +32,7 @@ class DatasetConfig(BaseModel):
     sample_ids: list[str] = Field(default_factory=list, description="Specific sample IDs to load.")
     audio_base_dir: str | None = Field(default=None, description="Base directory for local audio files.")
     transcripts_file: str | None = Field(default=None, description="Path to transcripts JSON.")
+    few_shot_ids_file: str | None = Field(default=None, description="Path to file containing few-shot IDs.")
 
 
 class ExperimentMeta(BaseModel):

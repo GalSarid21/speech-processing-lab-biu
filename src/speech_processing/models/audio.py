@@ -61,7 +61,7 @@ class QwenAudioEngine(BaseAudioModel):
                             for p, b in zip(turn.audio_path, turn.audio_bytes):
                                 content.append({"type": "audio", "audio_url": p})
                                 req_audios.append(load_audio(b, p))
-                        else:
+                        elif turn.audio_path is not None:
                             content.append({"type": "audio", "audio_url": turn.audio_path})
                             req_audios.append(load_audio(turn.audio_bytes, turn.audio_path))
                         

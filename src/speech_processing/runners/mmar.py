@@ -6,7 +6,7 @@ from enum import Enum
 from loguru import logger
 
 from speech_processing.config.core import ExperimentMeta
-from speech_processing.runners.base import parse_args, create_experiment_config
+from speech_processing.runners.base import parse_args
 from speech_processing.data.dataset import load_mmar_requests
 from speech_processing.prompts.templates.judge.qwen import build_mmar_judge_conversation
 from speech_processing.models.audio import QwenAudioEngine
@@ -78,20 +78,13 @@ class ExperimentVersion(Enum):
         except KeyError:
             raise ValueError(f"Unknown prompt version: {version_str}. Available versions: {[e.name for e in cls]}")
 
+from speech_processing.config.factories import create_mmar_config
+
 def run_mmar(args):
     experiment_meta = ExperimentVersion.get_version(args.experiment).value
     is_text_only = getattr(experiment_meta, "experiment_name", "") == "text_only_llm"
 
-    config = create_experiment_config(
-        args, 
-        experiment_meta, 
-        dataset_id="BoJack/MMAR",
-        target_labels=[]
-    )
-    
-    # Inject MMAR-specific paths dynamically
-    config.dataset.audio_base_dir = "data/MMAR"
-    config.dataset.transcripts_file = "data/mmar_transcripts.json"
+    config = create_mmar_config(args, experiment_meta)
 
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     run_name = f"mmar_{experiment_meta.experiment_name}_{timestamp}"
@@ -100,9 +93,17 @@ def run_mmar(args):
 
     logger.info("--- [PHASE 1] DATA LOADING & PREPARATION ---")
     dataset_items = load_mmar_requests(config.dataset, experiment_meta=experiment_meta, is_text_only=is_text_only)
+    
+    few_shot_turns = []
+    if "few_shot" in experiment_meta.experiment_name:
+        from speech_processing.data.dataset import get_mmar_few_shot_turns
+        few_shot_turns = get_mmar_few_shot_turns(config.dataset, experiment_meta, is_text_only=is_text_only, num_shots=3)
+
     requests = []
     ground_truths = []
     for req, gt in dataset_items:
+        if few_shot_turns:
+            req.few_shot_turns = few_shot_turns
         requests.append(req)
         ground_truths.append(gt)
 

@@ -17,7 +17,7 @@ model:
   id: "openai/whisper-large-v3"
   target_sample_rate: 16000
   chunk_length_s: 30
-  batch_size: 64
+  batch_size: 32
   attention_impl: "sdpa"
   language: "english"
   task: "transcribe"

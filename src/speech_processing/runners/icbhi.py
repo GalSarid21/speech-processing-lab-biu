@@ -6,7 +6,7 @@ from enum import Enum
 from loguru import logger
 
 from speech_processing.config.core import ExperimentMeta
-from speech_processing.runners.base import parse_args, create_experiment_config
+from speech_processing.runners.base import parse_args
 from speech_processing.data.dataset import load_icbhi_requests
 from speech_processing.prompts.templates.judge.qwen import build_icbhi_judge_conversation
 from speech_processing.models.audio import QwenAudioEngine
@@ -32,14 +32,7 @@ class ExperimentVersion(Enum):
     )
     v3 = ExperimentMeta(
         experiment_name="few_shot",
-        prompt="""Here are some examples of respiratory audio segments and their diagnoses. Listen to these examples and learn the acoustic features of each condition. Then, evaluate the final test audio segment. Respond with the diagnosis in the format 'Final Diagnosis: [diagnosis]'.
-
-Examples:
-- Normal vesicular breath sounds without any adventitious sounds indicate a Healthy patient.
-- Early inspiratory coarse crackles and expiratory wheezes indicate COPD.
-- High-pitched expiratory wheezes and fine inspiratory crackles indicate Bronchiolitis.
-
-Test Audio: Listen to the following audio and provide the diagnosis.""",
+        prompt="Here are some examples of respiratory audio segments and their diagnoses. Listen to these examples and learn the acoustic features of each condition. Then, evaluate the final test audio segment. Respond with the diagnosis in the format 'Final Diagnosis: [diagnosis]'.",
         max_new_tokens=256,
         batch_size=8
     )
@@ -51,16 +44,13 @@ Test Audio: Listen to the following audio and provide the diagnosis.""",
         except KeyError:
             raise ValueError(f"Unknown prompt version: {version_str}. Available versions: {[e.name for e in cls]}")
 
+from speech_processing.config.factories import create_icbhi_config
+
 def run_icbhi(args):
     experiment_meta = ExperimentVersion.get_version(args.experiment).value
     is_text_only = getattr(experiment_meta, "experiment_name", "") == "text_only_llm"
 
-    config = create_experiment_config(
-        args, 
-        experiment_meta, 
-        dataset_id="DynamicSuperb/RespiratorySoundClassification_ICBHI2017",
-        target_labels=["COPD", "No potential disease detected", "Healthy"]
-    )
+    config = create_icbhi_config(args, experiment_meta)
 
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     run_name = f"icbhi_{experiment_meta.experiment_name}_{timestamp}"
