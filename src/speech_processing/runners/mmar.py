@@ -20,58 +20,81 @@ from speech_processing.evaluation.stability import calculate_stability
 class ExperimentVersion(Enum):
     v1 = ExperimentMeta(
         experiment_name="baseline",
-        prompt="Listen to the audio and answer the multiple-choice question. You MUST respond entirely in English. Respond with the exact text of the correct choice."
+        prompt="Listen to the audio and answer the multiple-choice question. You MUST respond entirely in English. Respond with the exact text of the correct choice.",
+        max_new_tokens=256,
+        batch_size=8
     )
     v2 = ExperimentMeta(
         experiment_name="cot",
-        prompt="First, carefully listen to the audio file. You MUST respond entirely in English. Describe what you hear logically (e.g., speakers, environment, spoken content) and acoustically (e.g., pitch, tone, speech quality, background noise). Then, read the question and choices. Finally, select the choice that best matches your analysis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis in English here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>"
+        prompt="First, carefully listen to the audio file. You MUST respond entirely in English. Describe what you hear logically (e.g., speakers, environment, spoken content) and acoustically (e.g., pitch, tone, speech quality, background noise). Then, read the question and choices. Finally, select the choice that best matches your analysis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis in English here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>",
+        max_new_tokens=256,
+        batch_size=8
     )
     v3 = ExperimentMeta(
         experiment_name="transcript_augmented",
-        prompt="Listen to the audio and read the provided whisper transcript. Then, answer the multiple-choice question. Respond with the exact text of the correct choice."
+        prompt="Listen to the audio and read the provided whisper transcript. Then, answer the multiple-choice question. Respond with the exact text of the correct choice.",
+        max_new_tokens=256,
+        batch_size=8
     )
     v4 = ExperimentMeta(
         experiment_name="transcript_augmented_cot",
-        prompt="First, read the provided whisper transcript and carefully listen to the audio file. Describe what you hear logically (e.g., speakers, environment) and acoustically (e.g., pitch, tone, speech quality). Then, read the question and choices. Finally, select the choice that best matches your analysis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>"
+        prompt="First, read the provided whisper transcript and carefully listen to the audio file. Describe what you hear logically (e.g., speakers, environment) and acoustically (e.g., pitch, tone, speech quality). Then, read the question and choices. Finally, select the choice that best matches your analysis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>",
+        max_new_tokens=1024,
+        batch_size=8
     )
     v5 = ExperimentMeta(
         experiment_name="few_shot_text_only",
-        prompt="Here are some examples of questions and answers. Read them, then listen to the final audio and answer the multiple-choice question. Respond with the exact text of the correct choice."
+        prompt="Here are some examples of questions and answers. Read them, then listen to the final audio and answer the multiple-choice question. Respond with the exact text of the correct choice.",
+        max_new_tokens=1024,
+        batch_size=8
     )
     v6 = ExperimentMeta(
         experiment_name="few_shot_text_only_cot",
-        prompt="Here are examples of questions and reasoning chains. Read them, then listen to the final test audio. Describe the test audio logically (speakers, context) and acoustically (tone, pitch, speech quality). Finally, read the question and choices, select the best match.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>"
+        prompt="Here are examples of questions and reasoning chains. Read them, then listen to the final test audio. Describe the test audio logically (speakers, context) and acoustically (tone, pitch, speech quality). Finally, read the question and choices, select the best match.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>",
+        max_new_tokens=1024,
+        batch_size=8
     )
     v7 = ExperimentMeta(
         experiment_name="few_shot_audio",
-        prompt="Here are some examples of audio, questions, and answers. Listen to them, then evaluate the final test audio and answer the multiple-choice question. Respond with the exact text of the correct choice."
+        prompt="Here are some examples of audio, questions, and answers. Listen to them, then evaluate the final test audio and answer the multiple-choice question. Respond with the exact text of the correct choice.",
+        max_new_tokens=1024,
+        batch_size=8
     )
     v8 = ExperimentMeta(
         experiment_name="few_shot_audio_cot",
         prompt="Here are examples of audio, questions, and reasoning chains. Listen to them, then carefully evaluate the final test audio. Describe it logically (speakers, context) and acoustically (tone, pitch, speech quality). Finally, select the best matching choice.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>",
-        batch_size=4
+        batch_size=4,
+        max_new_tokens=1024
     )
     v9 = ExperimentMeta(
         experiment_name="few_shot_audio_transcript",
-        prompt="Here are examples with audio, whisper transcripts, questions, and answers. Evaluate the final test audio/transcript and answer the multiple-choice question. Respond with the exact text of the correct choice."
+        prompt="Here are examples with audio, whisper transcripts, questions, and answers. Evaluate the final test audio/transcript and answer the multiple-choice question. Respond with the exact text of the correct choice.",
+        max_new_tokens=1024,
+        batch_size=8
     )
     v10 = ExperimentMeta(
         experiment_name="few_shot_audio_transcript_cot",
         prompt="Here are examples with audio, transcripts, questions, and reasoning chains. Evaluate the final test audio and transcript. Describe it logically and acoustically. Finally, select the best matching choice.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>",
-        batch_size=4
+        batch_size=4,
+        max_new_tokens=1024
     )
     v11 = ExperimentMeta(
         experiment_name="role_prompting",
-        prompt="You are an expert socio-linguist and audio analyst. Evaluate the following audio and answer the multiple-choice question. Respond with the exact text of the correct choice."
+        prompt="You are an expert socio-linguist and audio analyst. Evaluate the following audio and answer the multiple-choice question. Respond with the exact text of the correct choice.",
+        max_new_tokens=256,
+        batch_size=8
     )
     v12 = ExperimentMeta(
         experiment_name="multi_turn_decomposition",
         prompt=["Describe the audio and the speaker's tone.", "Based on your description, answer the multiple-choice question. Respond with the exact text of the correct choice."],
-        batch_size=2
+        batch_size=2,
+        max_new_tokens=256
     )
     v13 = ExperimentMeta(
         experiment_name="text_only_llm",
-        prompt="Read the provided whisper transcript. Answer the multiple-choice question based solely on the transcript. Respond with the exact text of the correct choice."
+        prompt="Read the provided whisper transcript. Answer the multiple-choice question based solely on the transcript. Respond with the exact text of the correct choice.",
+        max_new_tokens=256,
+        batch_size=8
     )
 
     @classmethod

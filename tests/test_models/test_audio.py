@@ -14,12 +14,13 @@ def mock_audio_config():
         max_num_seqs=2,
         max_new_tokens=100,
         max_model_len=1024,
+        gpu_memory_utilization=0.95,
+        temperature=0.5,
+        top_p=0.5,
     )
 
 
 def test_audio_batch_infer(mocker, mock_audio_config):
-    mocker.patch("speech_processing.models.audio.Qwen2AudioForConditionalGeneration")
-    mocker.patch("speech_processing.models.audio.AutoProcessor")
     mock_adapter_class = mocker.patch("speech_processing.models.audio.TransformersAdapter")
     mock_librosa = mocker.patch("speech_processing.models.audio.librosa")
     mock_urlopen = mocker.patch("speech_processing.models.audio.urlopen")

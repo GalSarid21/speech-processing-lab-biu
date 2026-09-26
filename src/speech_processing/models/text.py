@@ -58,7 +58,7 @@ class GemmaTextModel(BaseTextModel):
         try:
             outputs = self.llm.generate(prompts=prompts, sampling_params=sampling_params)
             generated_texts = [out.outputs[0].text.strip() for out in outputs]
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"vLLM batch generation failed: {e}")
             return []
 

@@ -44,28 +44,18 @@ class QwenJudge(BaseJudgeModel):
         )
 
         schema_str = json.dumps(EvaluationResult.model_json_schema())
-        guided_kwargs = {}
-        try:
-            from vllm.sampling_params import GuidedDecodingParams
-            guided_kwargs["guided_decoding"] = GuidedDecodingParams(json=schema_str)
-        except ImportError:
-            try:
-                from vllm.sampling_params import StructuredOutputsParams
-                guided_kwargs["structured_outputs"] = StructuredOutputsParams(json=schema_str)
-            except ImportError:
-                guided_kwargs["guided_json"] = schema_str
-
-        sampling_params = SamplingParams(
+        sampling_params = GenerationParams(
             temperature=0.0,
-            max_tokens=self.config.max_new_tokens,
-            **guided_kwargs
+            top_p=1.0,
+            max_new_tokens=self.config.max_new_tokens,
+            json_schema=schema_str
         )
 
         try:
             generated_texts = self.adapter.generate_batch(
                 prompts=prompts, sampling_params=sampling_params
             )
-        except Exception as e:  # noqa: BLE001
+        except RuntimeError as e:
             logger.error(f"vLLM batch generation failed: {e}")
             return []
 
@@ -73,7 +63,7 @@ class QwenJudge(BaseJudgeModel):
         for req, output_text in zip(requests, generated_texts):
             try:
                 evaluation = EvaluationResult.model_validate_json(output_text)
-            except Exception as e:  # noqa: BLE001
+            except ValueError as e:
                 logger.error(
                     f"Failed to parse JSON for request. Raw output: {output_text}. Error: {e}"
                 )

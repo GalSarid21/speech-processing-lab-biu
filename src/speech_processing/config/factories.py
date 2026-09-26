@@ -7,7 +7,8 @@ from speech_processing.config.core import (
     DatasetConfig, 
     TextModelConfig, 
     AudioModelConfig, 
-    ExperimentMeta
+    ExperimentMeta,
+    JudgeConfig
 )
 
 def _parse_sample_ids(sample_ids_file: str | None) -> list[str]:
@@ -36,7 +37,7 @@ def _parse_sample_ids(sample_ids_file: str | None) -> list[str]:
         except json.JSONDecodeError:
             logger.error(f"Sample IDs file is not valid JSON: {sample_ids_file}")
         
-        except Exception as e:
+        except OSError as e:
             logger.error(f"An error occurred while loading sample IDs from {sample_ids_file}: {e}")
 
     else:
@@ -55,6 +56,10 @@ def create_gemma_config(max_num_seqs: int = 256, max_new_tokens: int = 512, gpu_
         max_new_tokens=max_new_tokens,
         max_model_len=8192,
         gpu_memory_utilization=gpu_pct,
+        temperature=1.0,
+        top_p=0.95,
+        top_k=64,
+        enable_thinking=True,
     )
 
 def create_voxtral_config(max_num_seqs: int = 256, max_new_tokens: int = 256, gpu_pct: float = 0.95) -> AudioModelConfig:
@@ -65,6 +70,8 @@ def create_voxtral_config(max_num_seqs: int = 256, max_new_tokens: int = 256, gp
         max_new_tokens=max_new_tokens,
         max_model_len=8192,
         gpu_memory_utilization=gpu_pct,
+        temperature=0.5,
+        top_p=0.5,
     )
 
 def create_qwen_audio_config(max_num_seqs: int = 256, max_new_tokens: int = 256, gpu_pct: float = 0.95) -> AudioModelConfig:
@@ -75,6 +82,18 @@ def create_qwen_audio_config(max_num_seqs: int = 256, max_new_tokens: int = 256,
         max_new_tokens=max_new_tokens,
         max_model_len=8192,
         gpu_memory_utilization=gpu_pct,
+        temperature=0.5,
+        top_p=0.5,
+    )
+
+def create_judge_config() -> JudgeConfig:
+    return JudgeConfig(
+        model_id="Qwen/Qwen3.8-27B-FP8",
+        dtype="auto",
+        max_num_seqs=64,
+        max_new_tokens=512,
+        max_model_len=8192,
+        gpu_memory_utilization=0.95,
     )
 
 def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
@@ -91,6 +110,7 @@ def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
     kwargs = {
         "output_dir": args.output_dir,
         "dataset": dataset_config,
+        "judge": create_judge_config(),
     }
     
     # Explicitly attach the Voxtral config for ICBHI experiments
@@ -118,6 +138,7 @@ def create_mmar_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
     kwargs = {
         "output_dir": args.output_dir,
         "dataset": dataset_config,
+        "judge": create_judge_config(),
     }
     
     gpu_pct = getattr(args, "gpu_pct", 0.95)

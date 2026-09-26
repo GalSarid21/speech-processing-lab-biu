@@ -16,7 +16,7 @@ def test_calculate_metrics():
     )
 
     metrics = calculate_metrics([resp1, resp2, resp1])
-    assert metrics is not None
+    assert_that(metrics).is_not_none()
     assert_that(metrics.avg_acoustic_pct).is_close_to(60.0, 0.01)
     assert_that(metrics.avg_diagnostic_pct).is_close_to(66.66, 0.01)
     assert_that(metrics.hallucination_rate_pct).is_close_to(33.33, 0.01)

@@ -2,9 +2,7 @@ from io import BytesIO
 from urllib.request import urlopen
 
 import librosa
-import torch
 from loguru import logger
-from transformers import AutoProcessor, Qwen2AudioForConditionalGeneration
 
 from speech_processing.adapters.transformers_adapter import TransformersAdapter
 from speech_processing.config.core import AudioModelConfig, GenerationParams
@@ -15,24 +13,10 @@ from speech_processing.models.base import BaseAudioModel
 class QwenAudioEngine(BaseAudioModel):
     def __init__(self, config: AudioModelConfig):
         self.config = config
-        logger.info(
-            f"Loading Qwen Audio Model from {config.model_id} via transformers..."
-        )
-        self.processor = AutoProcessor.from_pretrained(config.model_id)
-
-        torch_dtype: torch.dtype = getattr(torch, config.dtype, torch.bfloat16)
-
-        self.model = Qwen2AudioForConditionalGeneration.from_pretrained(
-            config.model_id, torch_dtype=torch_dtype, device_map="auto"
-        )
-        self.model.eval()
-
         self.adapter = TransformersAdapter(
-            self.model, 
-            self.processor, 
-            max_model_len=self.config.max_model_len,
-            temperature=self.config.temperature,
-            top_p=self.config.top_p
+            model_id=config.model_id,
+            dtype=config.dtype,
+            max_model_len=config.max_model_len
         )
 
     def batch_infer(self, requests: list[AudioRequest]) -> list[AudioResponse]:
@@ -59,11 +43,11 @@ class QwenAudioEngine(BaseAudioModel):
                 try:
                     def load_audio(audio_bytes, audio_path):
                         if audio_bytes is not None:
-                            return librosa.load(BytesIO(audio_bytes), sr=self.processor.feature_extractor.sampling_rate)[0]
+                            return librosa.load(BytesIO(audio_bytes), sr=self.adapter.processor.feature_extractor.sampling_rate)[0]
                         elif audio_path.startswith("http"):
-                            return librosa.load(BytesIO(urlopen(audio_path).read()), sr=self.processor.feature_extractor.sampling_rate)[0]
+                            return librosa.load(BytesIO(urlopen(audio_path).read()), sr=self.adapter.processor.feature_extractor.sampling_rate)[0]
                         else:
-                            return librosa.load(audio_path, sr=self.processor.feature_extractor.sampling_rate)[0]
+                            return librosa.load(audio_path, sr=self.adapter.processor.feature_extractor.sampling_rate)[0]
 
                     # 1. Add Few-Shot Turns
                     for turn in req.few_shot_turns:
@@ -85,7 +69,7 @@ class QwenAudioEngine(BaseAudioModel):
                     batch_conversations.append(conversation)
                     batch_audios.append(req_audios)
                     valid_reqs.append(req)
-                except Exception as e:  # noqa: BLE001
+                except RuntimeError as e:
                     logger.error(f"Failed to load audio {req.audio_path}: {e}")
 
             if not valid_reqs:
@@ -111,7 +95,7 @@ class QwenAudioEngine(BaseAudioModel):
                         content = inst
                     
                     conv.append({"role": "user", "content": content})
-                    base_text = self.processor.apply_chat_template(conv, add_generation_prompt=True, tokenize=False)
+                    base_text = self.adapter.processor.apply_chat_template(conv, add_generation_prompt=True, tokenize=False)
                     if "<analysis>" in inst:
                         base_text += "<analysis>\n"
                     texts.append(base_text)
@@ -136,7 +120,7 @@ class QwenAudioEngine(BaseAudioModel):
                             final_outputs[idx] += f"Turn {step+1} - User: {item_inst}\nAssistant: {gen_text}\n\n"
                         else:
                             final_outputs[idx] = gen_text
-                except Exception as e:  # noqa: BLE001
+                except RuntimeError as e:
                     logger.error(f"Failed to process batch on turn {step+1}: {e}")
                     for idx in range(len(valid_reqs)):
                         final_outputs[idx] += "\n[Error processing turn]"
@@ -264,7 +248,7 @@ class VoxtralAudioEngine(BaseAudioModel):
                         final_outputs[idx] += f"Turn {step+1} - User: {item_inst_check}\nAssistant: {gen_text}\n\n"
                     else:
                         final_outputs[idx] = gen_text
-            except Exception as e:
+            except RuntimeError as e:
                 logger.error(f"Failed to process batch on turn {step+1}: {e}")
                 for idx in range(len(requests)):
                     final_outputs[idx] += "\n[Error processing turn]"

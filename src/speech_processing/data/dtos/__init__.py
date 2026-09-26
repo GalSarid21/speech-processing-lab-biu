@@ -1,18 +1,4 @@
-from .requests import FewShotTurn, BaseRequest, AudioRequest, JudgeRequest, TextRequest, JudgeRequestParseError
-from .responses import BaseResponse, AudioResponse, TextResponse, EvaluationResult, JudgeResponse
-from .metrics import AggregateMetrics
+from speech_processing.data.dtos.requests import FewShotTurn, BaseRequest, AudioRequest, JudgeRequest, TextRequest, JudgeRequestParseError
+from speech_processing.data.dtos.responses import BaseResponse, AudioResponse, TextResponse, EvaluationResult, JudgeResponse
+from speech_processing.data.dtos.metrics import AggregateMetrics
 
-__all__ = [
-    "FewShotTurn",
-    "BaseRequest",
-    "AudioRequest",
-    "JudgeRequest",
-    "JudgeRequestParseError",
-    "TextRequest",
-    "BaseResponse",
-    "AudioResponse",
-    "TextResponse",
-    "EvaluationResult",
-    "JudgeResponse",
-    "AggregateMetrics",
-]

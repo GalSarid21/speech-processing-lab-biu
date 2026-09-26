@@ -22,11 +22,12 @@ def mock_judge_config():
         max_new_tokens=100,
         max_num_seqs=10,
         max_model_len=1024,
+        gpu_memory_utilization=0.95,
     )
 
 
 def test_judge_batch_evaluate_success(mocker, mock_judge_config):
-    mocker.patch("speech_processing.models.judge.LLM")
+    mocker.patch("speech_processing.models.judge.VLLMAdapter")
     mock_vllm_adapter_class = mocker.patch("speech_processing.models.judge.VLLMAdapter")
     
     # Setup mock LLM and Adapter
@@ -59,7 +60,7 @@ def test_judge_batch_evaluate_success(mocker, mock_judge_config):
 
 
 def test_judge_batch_evaluate_json_fallback(mocker, mock_judge_config):
-    mocker.patch("speech_processing.models.judge.LLM")
+    mocker.patch("speech_processing.models.judge.VLLMAdapter")
     mock_vllm_adapter_class = mocker.patch("speech_processing.models.judge.VLLMAdapter")
     mock_adapter = mock_vllm_adapter_class.return_value
     

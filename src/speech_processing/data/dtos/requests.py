@@ -35,7 +35,7 @@ class JudgeRequest(BaseRequest):
         try:
             data = json.loads(json_str)
             return cls(**data)
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError) as e:
             raise JudgeRequestParseError(f"Failed to parse JudgeRequest from JSON: {json_str}") from e
 
 
