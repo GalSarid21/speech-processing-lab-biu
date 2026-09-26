@@ -25,6 +25,7 @@ class AudioModelConfig(BaseModelConfig):
     max_model_len: int = Field(description="Max context length for the audio model")
     temperature: float = Field(description="Generation temperature")
     top_p: float = Field(description="Top p sampling")
+    target_sr: int = Field(description="Target sample rate for the audio model")
 
 
 class DatasetConfig(BaseModel):
@@ -43,6 +44,7 @@ class ExperimentMeta(BaseModel):
     prompt: str | list[str]
     max_new_tokens: int
     batch_size: int
+    system_prompt: str | None = None
 
 
 class AppConfig(BaseModel):

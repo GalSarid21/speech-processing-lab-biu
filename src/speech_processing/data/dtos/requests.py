@@ -11,6 +11,7 @@ class FewShotTurn(BaseModel):
 class BaseRequest(BaseModel):
     instruction: str | list[str]
     assistant_prefill: str | None = None
+    system_prompt: str | None = None
 
 
 class AudioRequest(BaseRequest):

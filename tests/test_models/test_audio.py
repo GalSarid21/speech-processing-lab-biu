@@ -17,6 +17,7 @@ def mock_audio_config():
         gpu_memory_utilization=0.95,
         temperature=0.5,
         top_p=0.5,
+        target_sr=16000,
     )
 
 

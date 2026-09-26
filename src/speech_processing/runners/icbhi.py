@@ -58,7 +58,7 @@ def run_icbhi(args):
     os.makedirs(run_dir, exist_ok=True)
 
     logger.info("--- [PHASE 1] DATA LOADING & PREPARATION ---")
-    dataset_items = load_icbhi_requests(config.dataset, is_text_only=is_text_only)
+    dataset_items = load_icbhi_requests(config.dataset, is_text_only=is_text_only, system_prompt=getattr(experiment_meta, 'system_prompt', None))
     requests = []
     ground_truths = []
     for req, gt in dataset_items:

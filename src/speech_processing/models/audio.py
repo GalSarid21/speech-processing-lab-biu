@@ -10,6 +10,36 @@ from speech_processing.data.dtos import AudioRequest, AudioResponse
 from speech_processing.models.base import BaseAudioModel
 
 
+def _force_mono_audio(path: str, target_sr: int) -> str:
+    """
+    Converts audio to mono and target_sr, caching it to avoid re-computation.
+    Only required for engines (like Voxtral/Mistral) whose internal tokenizers crash on stereo/multi-channel audio.
+    """
+    import os
+    import hashlib
+    import soundfile as sf
+    import librosa
+    
+    if path.startswith("http"):
+        return path
+        
+    abs_path = os.path.abspath(path)
+    cache_dir = "/tmp/audio_mono_cache"
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    path_hash = hashlib.md5(abs_path.encode()).hexdigest()
+    basename = os.path.basename(path)
+    cached_path = os.path.join(cache_dir, f"{path_hash}_{target_sr}_{basename}")
+    
+    if not os.path.exists(cached_path):
+        # librosa.load naturally downmixes to mono
+        y, sr = librosa.load(abs_path, sr=target_sr, mono=True)
+        sf.write(cached_path, y, sr)
+        
+    return f"file://{cached_path}"
+
+
+
 class QwenAudioEngine(BaseAudioModel):
     def __init__(self, config: AudioModelConfig):
         self.config = config
@@ -32,12 +62,12 @@ class QwenAudioEngine(BaseAudioModel):
             batch_audios = []
 
             for req in batch_reqs:
-                conversation = [
-                    {
+                conversation = []
+                if req.system_prompt:
+                    conversation.append({
                         "role": "system",
-                        "content": "You are a helpful and precise reasoning assistant. You MUST think and respond entirely in English. NEVER use Chinese characters."
-                    }
-                ]
+                        "content": req.system_prompt
+                    })
                 req_audios = []
                 
                 try:
@@ -173,10 +203,7 @@ class VoxtralAudioEngine(BaseAudioModel):
         final_outputs = [""] * len(requests)
         batch_conversations = [[] for _ in requests]
         
-        def get_audio_url(path):
-            if path.startswith("http"):
-                return path
-            return f"file://{os.path.abspath(path)}"
+
 
         for step in range(num_steps):
             inputs = []
@@ -190,28 +217,31 @@ class VoxtralAudioEngine(BaseAudioModel):
                 
                 # First step logic
                 if step == 0:
-                    conv.append({
-                        "role": "system",
-                        "content": "You are a helpful and precise reasoning assistant. You MUST think and respond entirely in English. NEVER use Chinese characters."
-                    })
+                    sys_prompt = f"{req.system_prompt}\n\n" if req.system_prompt else ""
                     
-                    for turn in req.few_shot_turns:
+                    for i, turn in enumerate(req.few_shot_turns):
                         content = []
                         if isinstance(turn.audio_path, list):
                             for p in turn.audio_path:
-                                content.append({"type": "audio_url", "audio_url": {"url": get_audio_url(p)}})
+                                content.append({"type": "audio_url", "audio_url": {"url": _force_mono_audio(p, self.config.target_sr)}})
                         elif turn.audio_path is not None:
-                            content.append({"type": "audio_url", "audio_url": {"url": get_audio_url(turn.audio_path)}})
+                            content.append({"type": "audio_url", "audio_url": {"url": _force_mono_audio(turn.audio_path, self.config.target_sr)}})
                             
-                        content.append({"type": "text", "text": turn.user_text})
+                        # Prepend the system prompt strictly to the FIRST user message to bypass Voxtral tokenizer limitations
+                        user_text = (sys_prompt + turn.user_text) if i == 0 else turn.user_text
+                        content.append({"type": "text", "text": user_text})
                         conv.append({"role": "user", "content": content})
                         conv.append({"role": "assistant", "content": turn.assistant_text})
                 
                 # Add the target user turn
                 if step == 0:
+                    sys_prompt = f"{req.system_prompt}\n\n" if req.system_prompt else ""
+                    # If there were no few-shot turns, this target instruction is the first message
+                    target_inst = (sys_prompt + inst) if not req.few_shot_turns else inst
+                    
                     content = [
-                        {"type": "audio_url", "audio_url": {"url": get_audio_url(req.audio_path)}},
-                        {"type": "text", "text": inst},
+                        {"type": "audio_url", "audio_url": {"url": _force_mono_audio(req.audio_path, self.config.target_sr)}},
+                        {"type": "text", "text": target_inst},
                     ]
                 else:
                     content = [{"type": "text", "text": inst}]

@@ -72,6 +72,7 @@ def create_voxtral_config(max_num_seqs: int = 256, max_new_tokens: int = 256, gp
         gpu_memory_utilization=gpu_pct,
         temperature=0.5,
         top_p=0.5,
+        target_sr=16000,
     )
 
 def create_qwen_audio_config(max_num_seqs: int = 256, max_new_tokens: int = 256, gpu_pct: float = 0.95) -> AudioModelConfig:
@@ -84,6 +85,7 @@ def create_qwen_audio_config(max_num_seqs: int = 256, max_new_tokens: int = 256,
         gpu_memory_utilization=gpu_pct,
         temperature=0.5,
         top_p=0.5,
+        target_sr=16000,
     )
 
 def create_judge_config() -> JudgeConfig:

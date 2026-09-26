@@ -5,7 +5,7 @@ from loguru import logger
 from speech_processing.config.core import DatasetConfig
 from speech_processing.data.dtos import AudioRequest,FewShotTurn, TextRequest, BaseRequest
 
-def load_icbhi_requests(config: DatasetConfig, is_text_only: bool = False) -> list[tuple[BaseRequest, str]]:
+def load_icbhi_requests(config: DatasetConfig, is_text_only: bool = False, system_prompt: str | None = None) -> list[tuple[BaseRequest, str]]:
     """Loads the ICBHI dataset, filters it, and returns a list of (Request, ground_truth)."""
     logger.info(f"Loading {config.dataset_id} dataset from HuggingFace...")
     ds = load_dataset(config.dataset_id, split=config.split)
@@ -57,12 +57,14 @@ def load_icbhi_requests(config: DatasetConfig, is_text_only: bool = False) -> li
     for _, row in sample_df.iterrows():
         if is_text_only:
             req = TextRequest(
-                instruction=row["instruction"]
+                instruction=row["instruction"],
+                system_prompt=system_prompt
             )
         else:
             audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
             req = AudioRequest(
                 instruction=row["instruction"],
+                system_prompt=system_prompt,
                 assistant_prefill="<analysis>\n" if "<analysis>" in str(row["instruction"]) else None, 
                 audio_path=row["file"],
                 audio_bytes=audio_bytes
@@ -145,10 +147,13 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
         else:
             formatted_instruction = f"Question: {question}\nChoices: {choices}"
         
+        system_prompt = experiment_meta.system_prompt if experiment_meta and hasattr(experiment_meta, 'system_prompt') else None
+        
         if is_text_only:
             req = TextRequest(
                 instruction=formatted_instruction,
                 assistant_prefill="<analysis>\n" if "<analysis>" in str(formatted_instruction) else None,
+                system_prompt=system_prompt,
                 metadata={
                     "question": question,
                     "choices": choices,
@@ -159,6 +164,7 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
             req = AudioRequest(
                 instruction=formatted_instruction,
                 assistant_prefill="<analysis>\n" if "<analysis>" in str(formatted_instruction) else None,
+                system_prompt=system_prompt,
                 audio_path=audio_path,
                 metadata={
                     "question": question,
