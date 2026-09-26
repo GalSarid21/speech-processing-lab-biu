@@ -155,6 +155,9 @@ class VoxtralAudioEngine(BaseAudioModel):
             limit_mm_per_prompt={"audio": 8},
             gpu_memory_utilization=config.gpu_memory_utilization,
             max_num_seqs=config.max_num_seqs,
+            # Whitelist the entire root filesystem ("/") to bypass vLLM's strict local media security sandbox.
+            # Required because we pass local dataset files via "file://" URI scheme.
+            allowed_local_media_path="/",
         )
         self.tokenizer = self.adapter.tokenizer
 
