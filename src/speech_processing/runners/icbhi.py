@@ -20,19 +20,19 @@ from speech_processing.evaluation.stability import calculate_stability
 class ExperimentVersion(Enum):
     v1 = ExperimentMeta(
         experiment_name="baseline",
-        prompt="Describe the respiratory cycle and the acoustic signature. Respond with the diagnosis in the format 'Final Diagnosis: [diagnosis]'.",
+        prompt="Describe the respiratory cycle and the acoustic signature. Respond with the diagnosis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your acoustic description and reasoning here]\n</analysis>\n<answer>\n[The exact diagnosis string]\n</answer>",
         max_new_tokens=256,
         batch_size=8
     )
     v2 = ExperimentMeta(
         experiment_name="cot",
-        prompt="Describe the respiratory cycle and the acoustic signature step by step. Then, respond with the diagnosis in the format 'Final Diagnosis: [diagnosis]'.",
+        prompt="Describe the respiratory cycle and the acoustic signature step by step. Then, respond with the diagnosis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your acoustic description and reasoning here]\n</analysis>\n<answer>\n[The exact diagnosis string]\n</answer>",
         max_new_tokens=512,
         batch_size=4
     )
     v3 = ExperimentMeta(
         experiment_name="few_shot",
-        prompt="Here are some examples of respiratory audio segments and their diagnoses. Listen to these examples and learn the acoustic features of each condition. Then, evaluate the final test audio segment. Respond with the diagnosis in the format 'Final Diagnosis: [diagnosis]'.",
+        prompt="Here are some examples of respiratory audio segments and their diagnoses. Listen to these examples and learn the acoustic features of each condition. Then, evaluate the final test audio segment.\n\nFormat your response exactly as follows:\n<analysis>\n[Your acoustic description and reasoning here]\n</analysis>\n<answer>\n[The exact diagnosis string]\n</answer>",
         max_new_tokens=256,
         batch_size=8
     )

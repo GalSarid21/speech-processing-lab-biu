@@ -24,7 +24,7 @@ class ExperimentVersion(Enum):
     )
     v2 = ExperimentMeta(
         experiment_name="cot",
-        prompt="First, carefully listen to the audio file. Describe what you hear logically (e.g., speakers, environment, spoken content) and acoustically (e.g., pitch, tone, speech quality, background noise). Then, read the question and choices. Finally, select the choice that best matches your analysis and respond with its exact text."
+        prompt="First, carefully listen to the audio file. Describe what you hear logically (e.g., speakers, environment, spoken content) and acoustically (e.g., pitch, tone, speech quality, background noise). Then, read the question and choices. Finally, select the choice that best matches your analysis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>"
     )
     v3 = ExperimentMeta(
         experiment_name="transcript_augmented",
@@ -32,7 +32,7 @@ class ExperimentVersion(Enum):
     )
     v4 = ExperimentMeta(
         experiment_name="transcript_augmented_cot",
-        prompt="First, read the provided whisper transcript and carefully listen to the audio file. Describe what you hear logically (e.g., speakers, environment) and acoustically (e.g., pitch, tone, speech quality). Then, read the question and choices. Finally, select the choice that best matches your analysis and respond with its exact text."
+        prompt="First, read the provided whisper transcript and carefully listen to the audio file. Describe what you hear logically (e.g., speakers, environment) and acoustically (e.g., pitch, tone, speech quality). Then, read the question and choices. Finally, select the choice that best matches your analysis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>"
     )
     v5 = ExperimentMeta(
         experiment_name="few_shot_text_only",
@@ -40,7 +40,7 @@ class ExperimentVersion(Enum):
     )
     v6 = ExperimentMeta(
         experiment_name="few_shot_text_only_cot",
-        prompt="Here are examples of questions and reasoning chains. Read them, then listen to the final test audio. Describe the test audio logically (speakers, context) and acoustically (tone, pitch, speech quality). Finally, read the question and choices, select the best match, and respond with its exact text."
+        prompt="Here are examples of questions and reasoning chains. Read them, then listen to the final test audio. Describe the test audio logically (speakers, context) and acoustically (tone, pitch, speech quality). Finally, read the question and choices, select the best match.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>"
     )
     v7 = ExperimentMeta(
         experiment_name="few_shot_audio",
@@ -48,7 +48,7 @@ class ExperimentVersion(Enum):
     )
     v8 = ExperimentMeta(
         experiment_name="few_shot_audio_cot",
-        prompt="Here are examples of audio, questions, and reasoning chains. Listen to them, then carefully evaluate the final test audio. Describe it logically (speakers, context) and acoustically (tone, pitch, speech quality). Finally, select the best matching choice and respond with its exact text.",
+        prompt="Here are examples of audio, questions, and reasoning chains. Listen to them, then carefully evaluate the final test audio. Describe it logically (speakers, context) and acoustically (tone, pitch, speech quality). Finally, select the best matching choice.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>",
         batch_size=4
     )
     v9 = ExperimentMeta(
@@ -57,7 +57,7 @@ class ExperimentVersion(Enum):
     )
     v10 = ExperimentMeta(
         experiment_name="few_shot_audio_transcript_cot",
-        prompt="Here are examples with audio, transcripts, questions, and reasoning chains. Evaluate the final test audio and transcript. Describe it logically and acoustically. Finally, select the best matching choice and respond with its exact text.",
+        prompt="Here are examples with audio, transcripts, questions, and reasoning chains. Evaluate the final test audio and transcript. Describe it logically and acoustically. Finally, select the best matching choice.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>",
         batch_size=4
     )
     v11 = ExperimentMeta(

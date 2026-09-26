@@ -40,30 +40,28 @@ def mock_pipeline_dependencies(mocker):
     mocker.patch("speech_processing.runners.icbhi.time.sleep")
 
 
-def test_mmar_runner_end_to_end(mock_pipeline_dependencies, tmp_path):
-    """Executes the MMAR runner start-to-finish to catch integration or signature errors."""
+@pytest.mark.parametrize("exp_name", [f"v{i}" for i in range(1, 14)])
+def test_mmar_runner_end_to_end(mock_pipeline_dependencies, tmp_path, exp_name):
+    """Executes the MMAR runner start-to-finish across ALL experiments to catch integration errors."""
     args = Namespace(
         dataset="mmar",
-        experiment="v1",
+        experiment=exp_name,
         output_dir=str(tmp_path),
         num_samples=1,
         sample_ids_file=None,
         runs=1
     )
     
-    # If the orchestrator passes a wrong kwarg to an engine (like template= instead of template_func=), 
-    # the autospec=True on the mock will instantly raise a TypeError here.
     run_mmar(args)
-    
-    # Verify the output directory was created
     assert_that(os.listdir(tmp_path)).is_not_empty()
 
 
-def test_icbhi_runner_end_to_end(mock_pipeline_dependencies, tmp_path):
-    """Executes the ICBHI runner start-to-finish to catch integration or signature errors."""
+@pytest.mark.parametrize("exp_name", [f"v{i}" for i in range(1, 4)])
+def test_icbhi_runner_end_to_end(mock_pipeline_dependencies, tmp_path, exp_name):
+    """Executes the ICBHI runner start-to-finish across ALL experiments to catch integration errors."""
     args = Namespace(
         dataset="icbhi",
-        experiment="v1",
+        experiment=exp_name,
         output_dir=str(tmp_path),
         num_samples=1,
         sample_ids_file=None,
@@ -71,5 +69,4 @@ def test_icbhi_runner_end_to_end(mock_pipeline_dependencies, tmp_path):
     )
     
     run_icbhi(args)
-    
     assert_that(os.listdir(tmp_path)).is_not_empty()

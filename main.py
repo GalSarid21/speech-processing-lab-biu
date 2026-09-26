@@ -16,12 +16,17 @@ def main():
     
     logger.info(f"Starting execution for dataset: {args.dataset.upper()} (Logging to {log_file})")
     
-    if args.dataset == "icbhi":
-        run_icbhi(args)
-    elif args.dataset == "mmar":
-        run_mmar(args)
-    else:
-        logger.error(f"Unknown dataset: {args.dataset}")
+    try:
+        if args.dataset == "icbhi":
+            run_icbhi(args)
+        elif args.dataset == "mmar":
+            run_mmar(args)
+        else:
+            logger.error(f"Unknown dataset: {args.dataset}")
+            sys.exit(1)
+    
+    except Exception as e:
+        logger.exception(f"CRITICAL PIPELINE FAILURE: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

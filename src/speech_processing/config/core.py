@@ -22,6 +22,8 @@ class TextModelConfig(BaseModelConfig):
 
 class AudioModelConfig(BaseModelConfig):
     max_model_len: int = Field(description="Max context length for the audio model")
+    temperature: float = Field(default=0.5, description="Generation temperature")
+    top_p: float = Field(default=0.5, description="Top p sampling")
 
 
 class DatasetConfig(BaseModel):

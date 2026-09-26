@@ -2,8 +2,8 @@ from pydantic import BaseModel, Field
 
 
 class FewShotTurn(BaseModel):
-    audio_bytes: bytes | list[bytes]
-    audio_path: str | list[str]
+    audio_bytes: bytes | list[bytes] | None = None
+    audio_path: str | list[str] | None = None
     user_text: str
     assistant_text: str
 

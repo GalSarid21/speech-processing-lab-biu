@@ -6,10 +6,12 @@ from speech_processing.adapters.base import BaseGenerationAdapter
 
 
 class TransformersAdapter(BaseGenerationAdapter):
-    def __init__(self, model, processor, max_model_len: int):
+    def __init__(self, model, processor, max_model_len: int, temperature: float = 0.5, top_p: float = 0.5):
         self.model = model
         self.processor = processor
         self.max_model_len = max_model_len
+        self.temperature = temperature
+        self.top_p = top_p
 
     def generate_batch(
         self, texts: list[str], audios: list[Any], max_new_tokens: int = 256
@@ -43,7 +45,10 @@ class TransformersAdapter(BaseGenerationAdapter):
         with torch.no_grad():
             generate_ids = self.model.generate(
                 **inputs, 
-                max_new_tokens=max_new_tokens
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=self.temperature,
+                top_p=self.top_p
             )
 
         generate_ids = generate_ids[:, inputs.input_ids.size(1) :]

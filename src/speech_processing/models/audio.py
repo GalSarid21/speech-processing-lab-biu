@@ -27,7 +27,13 @@ class QwenAudioEngine(BaseAudioModel):
         )
         self.model.eval()
 
-        self.adapter = TransformersAdapter(self.model, self.processor, max_model_len=self.config.max_model_len)
+        self.adapter = TransformersAdapter(
+            self.model, 
+            self.processor, 
+            max_model_len=self.config.max_model_len,
+            temperature=self.config.temperature,
+            top_p=self.config.top_p
+        )
 
     def batch_infer(self, requests: list[AudioRequest]) -> list[AudioResponse]:
         batch_size = self.config.max_num_seqs

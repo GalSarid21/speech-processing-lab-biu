@@ -123,10 +123,24 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
         transcript = transcripts.get(item_id, "[NO TRANSCRIPT]")
         
         if experiment_meta:
-            formatted_instruction = experiment_meta.prompt
+            prompt_def = experiment_meta.prompt
+            
+            # Create a deep copy to avoid mutating the Enum's singleton config
+            if isinstance(prompt_def, list):
+                formatted_instruction = prompt_def.copy()
+            else:
+                formatted_instruction = prompt_def
+                
+            suffix = ""
             if "transcript" in experiment_meta.experiment_name or "text_only" in experiment_meta.experiment_name:
-                formatted_instruction += f"\n\nTranscript: {transcript}"
-            formatted_instruction += f"\n\nQuestion: {question}\nChoices: {choices}"
+                suffix += f"\n\nTranscript: {transcript}"
+            suffix += f"\n\nQuestion: {question}\nChoices: {choices}"
+            
+            if isinstance(formatted_instruction, list):
+                # Append the question and choices to the LAST turn in the multi-turn list
+                formatted_instruction[-1] += suffix
+            else:
+                formatted_instruction += suffix
         else:
             formatted_instruction = f"Question: {question}\nChoices: {choices}"
         
@@ -214,7 +228,7 @@ def get_mmar_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_only
         assistant_text = answer
         if "cot" in experiment_meta.experiment_name:
             reasoning = fake_cots.get(item_id, f"The correct choice is {answer}.")
-            assistant_text = f"Based on the audio, {reasoning}\n\n{answer}"
+            assistant_text = f"<analysis>\n{reasoning}\n</analysis>\n<answer>\n{answer}\n</answer>"
 
         is_few_shot_text_only = "few_shot_text_only" in experiment_meta.experiment_name
             
@@ -247,7 +261,8 @@ def get_icbhi_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_onl
             audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
             
             user_text = row["instruction"]
-            assistant_text = f"Final Diagnosis: {row['label']}"
+            fake_reasoning = f"The audio presents acoustic signatures indicative of {row['label']}."
+            assistant_text = f"<analysis>\n{fake_reasoning}\n</analysis>\n<answer>\n{row['label']}\n</answer>"
             
             turns.append(FewShotTurn(
                 audio_path=row["file"],
