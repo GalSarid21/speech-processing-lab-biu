@@ -46,7 +46,20 @@ class VLLMAdapter(BaseGenerationAdapter):
         
         # If the input is a list of lists (i.e. batch of OpenAI message dicts)
         if len(prompts) > 0 and isinstance(prompts[0], list):
-            outputs: list[Any] = self.llm.chat(messages=prompts, sampling_params=vllm_params)
+            # Check if the final message is an assistant prefill
+            has_prefill = any(p[-1]["role"] == "assistant" for p in prompts)
+            try:
+                if has_prefill:
+                    # New vLLM API supports continue_final_message
+                    outputs: list[Any] = self.llm.chat(messages=prompts, sampling_params=vllm_params, continue_final_message=True)
+                else:
+                    outputs: list[Any] = self.llm.chat(messages=prompts, sampling_params=vllm_params)
+            except TypeError:
+                # Older vLLM APIs require modifying chat_template_kwargs
+                if has_prefill:
+                    outputs: list[Any] = self.llm.chat(messages=prompts, sampling_params=vllm_params, chat_template_kwargs={"add_generation_prompt": False})
+                else:
+                    outputs: list[Any] = self.llm.chat(messages=prompts, sampling_params=vllm_params)
         else:
             outputs: list[Any] = self.llm.generate(prompts=prompts, sampling_params=vllm_params)
         return [output.outputs[0].text for output in outputs]
