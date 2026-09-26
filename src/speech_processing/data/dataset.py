@@ -62,7 +62,8 @@ def load_icbhi_requests(config: DatasetConfig, is_text_only: bool = False) -> li
         else:
             audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
             req = AudioRequest(
-                instruction=row["instruction"], 
+                instruction=row["instruction"],
+                assistant_prefill="<analysis>\n" if "<analysis>" in str(row["instruction"]) else None, 
                 audio_path=row["file"],
                 audio_bytes=audio_bytes
             )
@@ -147,6 +148,7 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
         if is_text_only:
             req = TextRequest(
                 instruction=formatted_instruction,
+                assistant_prefill="<analysis>\n" if "<analysis>" in str(formatted_instruction) else None,
                 metadata={
                     "question": question,
                     "choices": choices,
@@ -156,6 +158,7 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
         else:
             req = AudioRequest(
                 instruction=formatted_instruction,
+                assistant_prefill="<analysis>\n" if "<analysis>" in str(formatted_instruction) else None,
                 audio_path=audio_path,
                 metadata={
                     "question": question,

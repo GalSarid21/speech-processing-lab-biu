@@ -2,10 +2,10 @@ import json
 from collections.abc import Callable
 
 from loguru import logger
-from vllm import LLM, SamplingParams
+
 
 from speech_processing.adapters.vllm_adapter import VLLMAdapter
-from speech_processing.config.core import JudgeConfig
+from speech_processing.config.core import JudgeConfig, GenerationParams
 from speech_processing.data.dtos import EvaluationResult, JudgeRequest, JudgeResponse
 from speech_processing.models.base import BaseJudgeModel
 
@@ -20,14 +20,15 @@ class QwenJudge(BaseJudgeModel):
         # Determine proper dtype for vLLM
         dtype = config.dtype if config.dtype != "float8" else "auto"
 
-        self.llm = LLM(
+        self.adapter = VLLMAdapter(
             model=config.model_id,
             dtype=dtype,
             max_model_len=config.max_model_len,
             trust_remote_code=True,
+            gpu_memory_utilization=config.gpu_memory_utilization,
+            max_num_seqs=config.max_num_seqs,
         )
-        self.tokenizer = self.llm.get_tokenizer()
-        self.adapter = VLLMAdapter(self.llm)
+        self.tokenizer = self.adapter.tokenizer
 
     def batch_evaluate(self, requests: list[JudgeRequest]) -> list[JudgeResponse]:
         prompts = []

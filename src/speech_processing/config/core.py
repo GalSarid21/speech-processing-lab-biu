@@ -6,6 +6,7 @@ class BaseModelConfig(BaseModel):
     dtype: str
     max_num_seqs: int = Field(description="Batch size for the model")
     max_new_tokens: int = Field(gt=0)
+    gpu_memory_utilization: float = Field(default=0.95, description="Fraction of GPU memory to allocate for vLLM")
 
 
 class JudgeConfig(BaseModelConfig):
@@ -76,3 +77,10 @@ class AppConfig(BaseModel):
         split="test",
         num_samples=100,
     ))
+
+
+class GenerationParams(BaseModel):
+    temperature: float = 0.5
+    top_p: float = 0.5
+    max_new_tokens: int = 256
+    json_schema: str | None = None

@@ -47,35 +47,39 @@ def _parse_sample_ids(sample_ids_file: str | None) -> list[str]:
     
 
 
-def create_gemma_config(batch_size: int = 4, max_new_tokens: int = 512) -> TextModelConfig:
+def create_gemma_config(max_num_seqs: int = 256, max_new_tokens: int = 512, gpu_pct: float = 0.95) -> TextModelConfig:
     return TextModelConfig(
         model_id="google/gemma-4-26B-A4B-it",
         dtype="bfloat16",
-        max_num_seqs=batch_size,
+        max_num_seqs=max_num_seqs,
         max_new_tokens=max_new_tokens,
         max_model_len=8192,
+        gpu_memory_utilization=gpu_pct,
     )
 
-def create_voxtral_config(batch_size: int = 8, max_new_tokens: int = 256) -> AudioModelConfig:
+def create_voxtral_config(max_num_seqs: int = 256, max_new_tokens: int = 256, gpu_pct: float = 0.95) -> AudioModelConfig:
     return AudioModelConfig(
         model_id="mistralai/Voxtral-Small-24B-2507",
         dtype="bfloat16",
-        max_num_seqs=batch_size,
+        max_num_seqs=max_num_seqs,
         max_new_tokens=max_new_tokens,
         max_model_len=8192,
+        gpu_memory_utilization=gpu_pct,
     )
 
-def create_qwen_audio_config(batch_size: int = 8, max_new_tokens: int = 256) -> AudioModelConfig:
+def create_qwen_audio_config(max_num_seqs: int = 256, max_new_tokens: int = 256, gpu_pct: float = 0.95) -> AudioModelConfig:
     return AudioModelConfig(
         model_id="Qwen/Qwen2-Audio-7B-Instruct",
         dtype="bfloat16",
-        max_num_seqs=batch_size,
+        max_num_seqs=max_num_seqs,
         max_new_tokens=max_new_tokens,
         max_model_len=8192,
+        gpu_memory_utilization=gpu_pct,
     )
 
 def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
     """Factory for creating a fully initialized ICBHI configuration."""
+    gpu_pct = getattr(args, "gpu_pct", 0.95)
     dataset_config = DatasetConfig(
         dataset_id="DynamicSuperb/RespiratorySoundClassification_ICBHI2017",
         target_labels=["COPD", "No potential disease detected", "Healthy"],
@@ -91,8 +95,9 @@ def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
     
     # Explicitly attach the Voxtral config for ICBHI experiments
     kwargs["audio_model"] = create_voxtral_config(
-        batch_size=getattr(experiment_meta, "batch_size", 8),
-        max_new_tokens=getattr(experiment_meta, "max_new_tokens", 256)
+        max_num_seqs=getattr(args, "max_seqs", 256),
+        max_new_tokens=getattr(experiment_meta, "max_new_tokens", 256),
+            gpu_pct=gpu_pct
     )
     
     return AppConfig(**kwargs)
@@ -115,10 +120,19 @@ def create_mmar_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
         "dataset": dataset_config,
     }
     
-    # Explicitly attach the Voxtral config for ICBHI experiments
-    kwargs["audio_model"] = create_voxtral_config(
-        batch_size=getattr(experiment_meta, "batch_size", 8),
-        max_new_tokens=getattr(experiment_meta, "max_new_tokens", 256)
-    )
+    gpu_pct = getattr(args, "gpu_pct", 0.95)
+    is_text_only = getattr(experiment_meta, "experiment_name", "") == "text_only_llm"
+    if is_text_only:
+        kwargs["text_model"] = create_gemma_config(
+            max_num_seqs=getattr(args, "max_seqs", 256),
+            max_new_tokens=getattr(experiment_meta, "max_new_tokens", 512),
+            gpu_pct=gpu_pct
+        )
+    else:
+        kwargs["audio_model"] = create_voxtral_config(
+            max_num_seqs=getattr(args, "max_seqs", 256),
+            max_new_tokens=getattr(experiment_meta, "max_new_tokens", 256),
+            gpu_pct=gpu_pct
+        )
     
     return AppConfig(**kwargs)

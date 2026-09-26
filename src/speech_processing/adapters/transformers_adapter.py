@@ -3,15 +3,14 @@ from typing import Any
 import torch
 
 from speech_processing.adapters.base import BaseGenerationAdapter
+from speech_processing.config.core import GenerationParams
 
 
 class TransformersAdapter(BaseGenerationAdapter):
-    def __init__(self, model, processor, max_model_len: int, temperature: float = 0.5, top_p: float = 0.5):
+    def __init__(self, model, processor, max_model_len: int):
         self.model = model
         self.processor = processor
         self.max_model_len = max_model_len
-        self.temperature = temperature
-        self.top_p = top_p
 
     def generate_batch(
         self, texts: list[str], audios: list[Any], max_new_tokens: int = 256
@@ -37,18 +36,18 @@ class TransformersAdapter(BaseGenerationAdapter):
         seq_len = inputs.input_ids.size(1)
         max_len = getattr(self.model.config, "max_position_embeddings", self.max_model_len)
         
-        if seq_len + max_new_tokens > max_len:
+        if seq_len + sampling_params.max_new_tokens > max_len:
             from loguru import logger
-            logger.error(f"CRITICAL: Prompt length ({seq_len} tokens) + max_new_tokens ({max_new_tokens}) exceeds model's max context window ({max_len})! This causes silent trimming or OOM.")
+            logger.error(f"CRITICAL: Prompt length ({seq_len} tokens) + max_new_tokens ({sampling_params.max_new_tokens}) exceeds model's max context window ({max_len})! This causes silent trimming or OOM.")
             raise ValueError(f"Prompt length {seq_len} exceeds max context limit of {max_len}")
 
         with torch.no_grad():
             generate_ids = self.model.generate(
                 **inputs, 
-                max_new_tokens=max_new_tokens,
+                max_new_tokens=sampling_params.max_new_tokens,
                 do_sample=True,
-                temperature=self.temperature,
-                top_p=self.top_p
+                temperature=sampling_params.temperature,
+                top_p=sampling_params.top_p
             )
 
         generate_ids = generate_ids[:, inputs.input_ids.size(1) :]
