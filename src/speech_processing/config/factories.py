@@ -45,26 +45,34 @@ def _parse_sample_ids(sample_ids_file: str | None) -> list[str]:
     
     return sample_ids
     
-def _build_model_kwargs(experiment_meta: ExperimentMeta) -> dict:
-    is_text_only = getattr(experiment_meta, "experiment_name", "") == "text_only_llm"
-    kwargs = {}
-    if is_text_only:
-        kwargs["text_model"] = TextModelConfig(
-            model_id="google/gemma-4-26B-A4B-it",
-            dtype="bfloat16",
-            max_num_seqs=getattr(experiment_meta, "batch_size", 4),
-            max_new_tokens=getattr(experiment_meta, "max_new_tokens", 512),
-            max_model_len=8192,
-        )
-    else:
-        kwargs["audio_model"] = AudioModelConfig(
-            model_id="Qwen/Qwen2-Audio-7B-Instruct",
-            dtype="bfloat16",
-            max_num_seqs=getattr(experiment_meta, "batch_size", 8),
-            max_new_tokens=getattr(experiment_meta, "max_new_tokens", 256),
-            max_model_len=8192,
-        )
-    return kwargs
+
+
+def create_gemma_config(batch_size: int = 4, max_new_tokens: int = 512) -> TextModelConfig:
+    return TextModelConfig(
+        model_id="google/gemma-4-26B-A4B-it",
+        dtype="bfloat16",
+        max_num_seqs=batch_size,
+        max_new_tokens=max_new_tokens,
+        max_model_len=8192,
+    )
+
+def create_voxtral_config(batch_size: int = 8, max_new_tokens: int = 256) -> AudioModelConfig:
+    return AudioModelConfig(
+        model_id="mistralai/Voxtral-Small-24B-2507",
+        dtype="bfloat16",
+        max_num_seqs=batch_size,
+        max_new_tokens=max_new_tokens,
+        max_model_len=8192,
+    )
+
+def create_qwen_audio_config(batch_size: int = 8, max_new_tokens: int = 256) -> AudioModelConfig:
+    return AudioModelConfig(
+        model_id="Qwen/Qwen2-Audio-7B-Instruct",
+        dtype="bfloat16",
+        max_num_seqs=batch_size,
+        max_new_tokens=max_new_tokens,
+        max_model_len=8192,
+    )
 
 def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
     """Factory for creating a fully initialized ICBHI configuration."""
@@ -80,7 +88,12 @@ def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
         "output_dir": args.output_dir,
         "dataset": dataset_config,
     }
-    kwargs.update(_build_model_kwargs(experiment_meta))
+    
+    # Explicitly attach the Voxtral config for ICBHI experiments
+    kwargs["audio_model"] = create_voxtral_config(
+        batch_size=getattr(experiment_meta, "batch_size", 8),
+        max_new_tokens=getattr(experiment_meta, "max_new_tokens", 256)
+    )
     
     return AppConfig(**kwargs)
 
@@ -101,6 +114,11 @@ def create_mmar_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
         "output_dir": args.output_dir,
         "dataset": dataset_config,
     }
-    kwargs.update(_build_model_kwargs(experiment_meta))
+    
+    # Explicitly attach the Voxtral config for ICBHI experiments
+    kwargs["audio_model"] = create_voxtral_config(
+        batch_size=getattr(experiment_meta, "batch_size", 8),
+        max_new_tokens=getattr(experiment_meta, "max_new_tokens", 256)
+    )
     
     return AppConfig(**kwargs)

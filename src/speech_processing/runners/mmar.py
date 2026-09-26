@@ -9,7 +9,7 @@ from speech_processing.config.core import ExperimentMeta
 from speech_processing.runners.base import parse_args
 from speech_processing.data.dataset import load_mmar_requests
 from speech_processing.prompts.templates.judge.qwen import build_mmar_judge_conversation
-from speech_processing.models.audio import QwenAudioEngine
+from speech_processing.models.audio import VoxtralAudioEngine
 from speech_processing.models.text import GemmaTextModel
 from speech_processing.models.judge import QwenJudge
 from speech_processing.pipelines.inference import InferencePipeline
@@ -20,11 +20,11 @@ from speech_processing.evaluation.stability import calculate_stability
 class ExperimentVersion(Enum):
     v1 = ExperimentMeta(
         experiment_name="baseline",
-        prompt="Listen to the audio and answer the multiple-choice question. Respond with the exact text of the correct choice."
+        prompt="Listen to the audio and answer the multiple-choice question. You MUST respond entirely in English. Respond with the exact text of the correct choice."
     )
     v2 = ExperimentMeta(
         experiment_name="cot",
-        prompt="First, carefully listen to the audio file. Describe what you hear logically (e.g., speakers, environment, spoken content) and acoustically (e.g., pitch, tone, speech quality, background noise). Then, read the question and choices. Finally, select the choice that best matches your analysis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>"
+        prompt="First, carefully listen to the audio file. You MUST respond entirely in English. Describe what you hear logically (e.g., speakers, environment, spoken content) and acoustically (e.g., pitch, tone, speech quality, background noise). Then, read the question and choices. Finally, select the choice that best matches your analysis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis in English here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>"
     )
     v3 = ExperimentMeta(
         experiment_name="transcript_augmented",
@@ -114,7 +114,7 @@ def run_mmar(args):
     if is_text_only:
         inference_engine = GemmaTextModel(config.text_model)
     else:
-        inference_engine = QwenAudioEngine(config.audio_model)
+        inference_engine = VoxtralAudioEngine(config.audio_model)
     inference_pipeline = InferencePipeline(inference_engine)
 
     logger.info(f"--- [PHASE 3] RUNNING INFERENCE ({args.runs} RUNS) ---")

@@ -9,7 +9,7 @@ from speech_processing.config.core import ExperimentMeta
 from speech_processing.runners.base import parse_args
 from speech_processing.data.dataset import load_icbhi_requests
 from speech_processing.prompts.templates.judge.qwen import build_icbhi_judge_conversation
-from speech_processing.models.audio import QwenAudioEngine
+from speech_processing.models.audio import VoxtralAudioEngine
 from speech_processing.models.text import GemmaTextModel
 from speech_processing.models.judge import QwenJudge
 from speech_processing.pipelines.inference import InferencePipeline
@@ -20,19 +20,19 @@ from speech_processing.evaluation.stability import calculate_stability
 class ExperimentVersion(Enum):
     v1 = ExperimentMeta(
         experiment_name="baseline",
-        prompt="Describe the respiratory cycle and the acoustic signature. Respond with the diagnosis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your acoustic description and reasoning here]\n</analysis>\n<answer>\n[The exact diagnosis string]\n</answer>",
+        prompt="Describe the respiratory cycle and the acoustic signature. You MUST respond entirely in English. Respond with the diagnosis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your acoustic description and reasoning in English here]\n</analysis>\n<answer>\n[The exact diagnosis string]\n</answer>",
         max_new_tokens=256,
         batch_size=8
     )
     v2 = ExperimentMeta(
         experiment_name="cot",
-        prompt="Describe the respiratory cycle and the acoustic signature step by step. Then, respond with the diagnosis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your acoustic description and reasoning here]\n</analysis>\n<answer>\n[The exact diagnosis string]\n</answer>",
+        prompt="Describe the respiratory cycle and the acoustic signature step by step. You MUST respond entirely in English. Then, respond with the diagnosis.\n\nFormat your response exactly as follows:\n<analysis>\n[Your acoustic description and reasoning in English here]\n</analysis>\n<answer>\n[The exact diagnosis string]\n</answer>",
         max_new_tokens=512,
         batch_size=4
     )
     v3 = ExperimentMeta(
         experiment_name="few_shot",
-        prompt="Here are some examples of respiratory audio segments and their diagnoses. Listen to these examples and learn the acoustic features of each condition. Then, evaluate the final test audio segment.\n\nFormat your response exactly as follows:\n<analysis>\n[Your acoustic description and reasoning here]\n</analysis>\n<answer>\n[The exact diagnosis string]\n</answer>",
+        prompt="Here are some examples of respiratory audio segments and their diagnoses. Listen to these examples and learn the acoustic features of each condition. You MUST respond entirely in English. Then, evaluate the final test audio segment.\n\nFormat your response exactly as follows:\n<analysis>\n[Your acoustic description and reasoning in English here]\n</analysis>\n<answer>\n[The exact diagnosis string]\n</answer>",
         max_new_tokens=256,
         batch_size=8
     )
@@ -70,7 +70,7 @@ def run_icbhi(args):
     if is_text_only:
         inference_engine = GemmaTextModel(config.text_model)
     else:
-        inference_engine = QwenAudioEngine(config.audio_model)
+        inference_engine = VoxtralAudioEngine(config.audio_model)
     inference_pipeline = InferencePipeline(inference_engine)
 
     logger.info(f"--- [PHASE 3] RUNNING INFERENCE ({args.runs} RUNS) ---")

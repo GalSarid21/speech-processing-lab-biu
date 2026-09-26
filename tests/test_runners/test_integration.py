@@ -16,7 +16,7 @@ def mock_pipeline_dependencies(mocker):
     mocker.patch("speech_processing.runners.icbhi.load_icbhi_requests", return_value=[(dummy_req, "Healthy")])
     
     # 2. Mock the Engines WITH autospec=True (This enforces signature checking!)
-    mock_audio = mocker.patch("speech_processing.runners.mmar.QwenAudioEngine", autospec=True)
+    mock_audio = mocker.patch("speech_processing.runners.mmar.VoxtralAudioEngine", autospec=True)
     mock_text = mocker.patch("speech_processing.runners.mmar.GemmaTextModel", autospec=True)
     mock_judge = mocker.patch("speech_processing.runners.mmar.QwenJudge", autospec=True)
     
@@ -27,7 +27,7 @@ def mock_pipeline_dependencies(mocker):
     mock_judge_pipe = mocker.patch("speech_processing.runners.mmar.JudgePipeline", autospec=True)
     
     # Do the same for ICBHI runner
-    mocker.patch("speech_processing.runners.icbhi.QwenAudioEngine", autospec=True)
+    mocker.patch("speech_processing.runners.icbhi.VoxtralAudioEngine", autospec=True)
     mocker.patch("speech_processing.runners.icbhi.GemmaTextModel", autospec=True)
     mocker.patch("speech_processing.runners.icbhi.QwenJudge", autospec=True)
     mocker.patch("speech_processing.runners.icbhi.InferencePipeline", autospec=True).return_value.run.return_value = (["temp.jsonl"], [["Final Diagnosis: Healthy"]])
