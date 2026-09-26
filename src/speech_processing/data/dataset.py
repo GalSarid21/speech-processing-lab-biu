@@ -206,9 +206,9 @@ def get_mmar_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_only
             user_text = f"Question: {question}\nChoices: {choices}"
 
         fake_cots = {
-            "KodXqxwrFiE_00-00-00_00-00-19": "The speaker mentions fruit and specifically points out blueberries.",
-            "BV1Gt42157zM_00-00-00_00-00-17": "The boy imitates the girl's pronunciation in a mock British accent.",
-            "Scaei6tdU6k_00-00-00_00-00-10": "The woman's tone is highly playful and laughing, indicating she is not serious."
+            "KodXqxwrFiE_00-00-00_00-00-19": "Logically, I hear a clear instructional voice pointing out a specific type of fruit. Acoustically, the speech is direct, well-articulated, and recorded in a quiet environment. Based on this, the speaker specifically points out blueberries.",
+            "BV1Gt42157zM_00-00-00_00-00-17": "Logically, a girl speaks first, followed by a boy imitating her pronunciation. Acoustically, the boy artificially alters his pitch and vowel sounds to perform a mock accent. Based on this, the boy is imitating a British accent.",
+            "Scaei6tdU6k_00-00-00_00-00-10": "Logically, a woman is speaking, but her words contrast with her delivery. Acoustically, her tone is highly elevated, laughing, and playful, indicating she is not being serious. Based on this, she was being playful and expressing surprise."
         }
 
         assistant_text = answer

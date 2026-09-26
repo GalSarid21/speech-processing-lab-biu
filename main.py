@@ -7,7 +7,14 @@ from speech_processing.runners.mmar import run_mmar
 def main():
     args = parse_args("Master Runner for Speech Processing Pipelines")
     
-    logger.info(f"Starting execution for dataset: {args.dataset.upper()}")
+    import os
+    from datetime import datetime
+    os.makedirs("logs", exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f"logs/{args.dataset}_{args.experiment}_{timestamp}.log"
+    logger.add(log_file, format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}", level="INFO")
+    
+    logger.info(f"Starting execution for dataset: {args.dataset.upper()} (Logging to {log_file})")
     
     if args.dataset == "icbhi":
         run_icbhi(args)

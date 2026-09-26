@@ -24,7 +24,7 @@ class ExperimentVersion(Enum):
     )
     v2 = ExperimentMeta(
         experiment_name="cot",
-        prompt="First, describe the audio step-by-step. Then, answer the multiple-choice question. Finally, respond with the exact text of the correct choice."
+        prompt="First, carefully listen to the audio file. Describe what you hear logically (e.g., speakers, environment, spoken content) and acoustically (e.g., pitch, tone, speech quality, background noise). Then, read the question and choices. Finally, select the choice that best matches your analysis and respond with its exact text."
     )
     v3 = ExperimentMeta(
         experiment_name="transcript_augmented",
@@ -32,7 +32,7 @@ class ExperimentVersion(Enum):
     )
     v4 = ExperimentMeta(
         experiment_name="transcript_augmented_cot",
-        prompt="First, read the provided whisper transcript and describe the audio step-by-step. Then, answer the multiple-choice question. Finally, respond with the exact text of the correct choice."
+        prompt="First, read the provided whisper transcript and carefully listen to the audio file. Describe what you hear logically (e.g., speakers, environment) and acoustically (e.g., pitch, tone, speech quality). Then, read the question and choices. Finally, select the choice that best matches your analysis and respond with its exact text."
     )
     v5 = ExperimentMeta(
         experiment_name="few_shot_text_only",
@@ -40,7 +40,7 @@ class ExperimentVersion(Enum):
     )
     v6 = ExperimentMeta(
         experiment_name="few_shot_text_only_cot",
-        prompt="Here are some examples of questions and reasoning chains. Read them, then listen to the final audio, describe it step-by-step, and answer the multiple-choice question. Respond with the exact text of the correct choice."
+        prompt="Here are examples of questions and reasoning chains. Read them, then listen to the final test audio. Describe the test audio logically (speakers, context) and acoustically (tone, pitch, speech quality). Finally, read the question and choices, select the best match, and respond with its exact text."
     )
     v7 = ExperimentMeta(
         experiment_name="few_shot_audio",
@@ -48,7 +48,8 @@ class ExperimentVersion(Enum):
     )
     v8 = ExperimentMeta(
         experiment_name="few_shot_audio_cot",
-        prompt="Here are examples of audio, questions, and reasoning chains. Listen to them, then describe the final test audio step-by-step and answer the multiple-choice question. Respond with the exact text of the correct choice."
+        prompt="Here are examples of audio, questions, and reasoning chains. Listen to them, then carefully evaluate the final test audio. Describe it logically (speakers, context) and acoustically (tone, pitch, speech quality). Finally, select the best matching choice and respond with its exact text.",
+        batch_size=4
     )
     v9 = ExperimentMeta(
         experiment_name="few_shot_audio_transcript",
@@ -56,7 +57,8 @@ class ExperimentVersion(Enum):
     )
     v10 = ExperimentMeta(
         experiment_name="few_shot_audio_transcript_cot",
-        prompt="Here are examples with audio, whisper transcripts, questions, and reasoning chains. Evaluate the final test audio/transcript, describe it step-by-step, and answer the multiple-choice question. Respond with the exact text of the correct choice."
+        prompt="Here are examples with audio, transcripts, questions, and reasoning chains. Evaluate the final test audio and transcript. Describe it logically and acoustically. Finally, select the best matching choice and respond with its exact text.",
+        batch_size=4
     )
     v11 = ExperimentMeta(
         experiment_name="role_prompting",
@@ -64,7 +66,8 @@ class ExperimentVersion(Enum):
     )
     v12 = ExperimentMeta(
         experiment_name="multi_turn_decomposition",
-        prompt=["Describe the audio and the speaker's tone.", "Based on your description, answer the multiple-choice question. Respond with the exact text of the correct choice."]
+        prompt=["Describe the audio and the speaker's tone.", "Based on your description, answer the multiple-choice question. Respond with the exact text of the correct choice."],
+        batch_size=2
     )
     v13 = ExperimentMeta(
         experiment_name="text_only_llm",
@@ -139,7 +142,7 @@ def run_mmar(args):
     time.sleep(30)
 
     logger.info("--- [PHASE 4] INITIALIZING JUDGE ENGINE ---")
-    judge_engine = QwenJudge(config.judge, template=build_mmar_judge_conversation)
+    judge_engine = QwenJudge(config.judge, template_func=build_mmar_judge_conversation)
     judge_pipeline = JudgePipeline(judge_engine)
 
     logger.info(f"--- [PHASE 5] RUNNING JUDGE EVALUATION ({args.runs} RUNS) ---")

@@ -9,7 +9,7 @@ from pathlib import Path
 from sklearn.metrics import f1_score
 from loguru import logger
 
-def parse_metrics(jsonl_path):
+def parse_metrics(jsonl_path: str) -> dict[str, float]:
     total = 0
     acoustic = 0
     diagnostic = 0

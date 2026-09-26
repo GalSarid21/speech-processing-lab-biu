@@ -27,7 +27,7 @@ class QwenAudioEngine(BaseAudioModel):
         )
         self.model.eval()
 
-        self.adapter = TransformersAdapter(self.model, self.processor)
+        self.adapter = TransformersAdapter(self.model, self.processor, max_model_len=self.config.max_model_len)
 
     def batch_infer(self, requests: list[AudioRequest]) -> list[AudioResponse]:
         batch_size = self.config.max_num_seqs
@@ -82,15 +82,20 @@ class QwenAudioEngine(BaseAudioModel):
             if not valid_reqs:
                 continue
 
-            instructions = valid_reqs[0].instruction
-            if not isinstance(instructions, list):
-                instructions = [instructions]
-                
+            first_inst = valid_reqs[0].instruction
+            num_steps = len(first_inst) if isinstance(first_inst, list) else 1
+            
             final_outputs = [""] * len(valid_reqs)
 
-            for step, inst in enumerate(instructions):
+            for step in range(num_steps):
                 texts = []
                 for idx, conv in enumerate(batch_conversations):
+                    item_insts = valid_reqs[idx].instruction
+                    if not isinstance(item_insts, list):
+                        item_insts = [item_insts]
+                        
+                    inst = item_insts[step]
+                    
                     if step == 0:
                         content = [
                             {"type": "audio", "audio_url": valid_reqs[idx].audio_path},
@@ -102,7 +107,7 @@ class QwenAudioEngine(BaseAudioModel):
                     conv.append({"role": "user", "content": content})
                     texts.append(self.processor.apply_chat_template(conv, add_generation_prompt=True, tokenize=False))
 
-                logger.info(f"Processing audio batch of size {len(valid_reqs)} (Turn {step+1}/{len(instructions)})...")
+                logger.info(f"Processing audio batch of size {len(valid_reqs)} (Turn {step+1}/{num_steps})...")
 
                 try:
                     generated_texts = self.adapter.generate_batch(
@@ -111,8 +116,9 @@ class QwenAudioEngine(BaseAudioModel):
                     
                     for idx, gen_text in enumerate(generated_texts):
                         batch_conversations[idx].append({"role": "assistant", "content": [{"type": "text", "text": gen_text}]})
-                        if len(instructions) > 1:
-                            final_outputs[idx] += f"Turn {step+1} - User: {inst}\nAssistant: {gen_text}\n\n"
+                        if num_steps > 1:
+                            item_inst = valid_reqs[idx].instruction[step] if isinstance(valid_reqs[idx].instruction, list) else valid_reqs[idx].instruction
+                            final_outputs[idx] += f"Turn {step+1} - User: {item_inst}\nAssistant: {gen_text}\n\n"
                         else:
                             final_outputs[idx] = gen_text
                 except Exception as e:  # noqa: BLE001

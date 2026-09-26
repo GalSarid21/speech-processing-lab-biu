@@ -6,9 +6,10 @@ from speech_processing.adapters.base import BaseGenerationAdapter
 
 
 class TransformersAdapter(BaseGenerationAdapter):
-    def __init__(self, model, processor):
+    def __init__(self, model, processor, max_model_len: int):
         self.model = model
         self.processor = processor
+        self.max_model_len = max_model_len
 
     def generate_batch(
         self, texts: list[str], audios: list[Any], max_new_tokens: int = 256
@@ -29,6 +30,15 @@ class TransformersAdapter(BaseGenerationAdapter):
             sampling_rate=self.processor.feature_extractor.sampling_rate
         )
         inputs = inputs.to(self.model.device)
+        
+        # Dimension 1 represents the sequence length of the tokenized inputs
+        seq_len = inputs.input_ids.size(1)
+        max_len = getattr(self.model.config, "max_position_embeddings", self.max_model_len)
+        
+        if seq_len + max_new_tokens > max_len:
+            from loguru import logger
+            logger.error(f"CRITICAL: Prompt length ({seq_len} tokens) + max_new_tokens ({max_new_tokens}) exceeds model's max context window ({max_len})! This causes silent trimming or OOM.")
+            raise ValueError(f"Prompt length {seq_len} exceeds max context limit of {max_len}")
 
         with torch.no_grad():
             generate_ids = self.model.generate(

@@ -98,7 +98,7 @@ def run_icbhi(args):
     time.sleep(30)
 
     logger.info("--- [PHASE 4] INITIALIZING JUDGE ENGINE ---")
-    judge_engine = QwenJudge(config.judge, template=build_icbhi_judge_conversation)
+    judge_engine = QwenJudge(config.judge, template_func=build_icbhi_judge_conversation)
     judge_pipeline = JudgePipeline(judge_engine)
 
     logger.info(f"--- [PHASE 5] RUNNING JUDGE EVALUATION ({args.runs} RUNS) ---")
