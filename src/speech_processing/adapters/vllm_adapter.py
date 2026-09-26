@@ -18,22 +18,31 @@ class VLLMAdapter(BaseGenerationAdapter):
             "max_tokens": sampling_params.max_new_tokens
         }
         
+        vllm_params = None
         if sampling_params.json_schema:
             try:
-                import inspect
-                sig = inspect.signature(SamplingParams.__init__)
-                if "structured_outputs" in sig.parameters:
-                    from vllm.sampling_params import StructuredOutputsParams
-                    kwargs["structured_outputs"] = StructuredOutputsParams(json=sampling_params.json_schema)
-                elif "guided_decoding" in sig.parameters:
+                # 1. Try Newest API (vLLM >= 0.6.1)
+                from vllm.sampling_params import StructuredOutputsParams
+                vllm_params = SamplingParams(
+                    **kwargs, 
+                    structured_outputs=StructuredOutputsParams(json=sampling_params.json_schema)
+                )
+            except (ImportError, TypeError, ValueError):
+                try:
+                    # 2. Try Recent API (vLLM ~ 0.5.x)
                     from vllm.sampling_params import GuidedDecodingParams
-                    kwargs["guided_decoding"] = GuidedDecodingParams(json=sampling_params.json_schema)
-                else:
-                    kwargs["guided_json"] = sampling_params.json_schema
-            except Exception:
-                kwargs["guided_json"] = sampling_params.json_schema
-                    
-        vllm_params = SamplingParams(**kwargs)
+                    vllm_params = SamplingParams(
+                        **kwargs, 
+                        guided_decoding=GuidedDecodingParams(json=sampling_params.json_schema)
+                    )
+                except (ImportError, TypeError, ValueError):
+                    # 3. Try Oldest API (vLLM < 0.5.x)
+                    vllm_params = SamplingParams(
+                        **kwargs, 
+                        guided_json=sampling_params.json_schema
+                    )
+        else:
+            vllm_params = SamplingParams(**kwargs)
         
         # If the input is a list of lists (i.e. batch of OpenAI message dicts)
         if len(prompts) > 0 and isinstance(prompts[0], list):
