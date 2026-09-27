@@ -12,3 +12,4 @@ rag_indexer:
     output_mapping_file: "data/mmar_rag_mapping.json"
   parameters:
     top_k: 3
+    batch_size: 64

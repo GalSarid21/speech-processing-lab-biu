@@ -9,11 +9,11 @@ class LCOAudioEmbedder:
         self.model_id = model_id
         self.adapter = SentenceTransformersEmbeddingAdapter(model_id=model_id)
         
-    def embed_audio(self, audio_path: str) -> torch.Tensor:
+    def embed_audio(self, audio_path: str | list[str] | dict | list[dict], batch_size: int | None = None) -> torch.Tensor:
         """Embeds a single audio file and returns its dense vector."""
         try:
             audio, sr = librosa.load(audio_path, sr=DEFAULT_SAMPLING_RATE, mono=True)
-            return self.adapter.embed_audio(audio)
+            return self.adapter.embed_audio(audio, batch_size)
         except Exception as e:
             logger.error(f"Error embedding {audio_path}: {e}")
             raise

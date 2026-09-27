@@ -23,12 +23,13 @@ class SentenceTransformersEmbeddingAdapter:
             model_kwargs={
                 "torch_dtype": torch_dtype,
                 "trust_remote_code": True,
+                "attn_implementation": "flash_attention_2"
             },
             device=self.device
         )
         self.model.eval()
         
-    def embed_audio(self, audio_source: str | dict | list[str] | list[dict], batch_size: int = 16) -> torch.Tensor:
+    def embed_audio(self, audio_source: str | dict | list[str] | list[dict], batch_size: int | None = None) -> torch.Tensor:
         """
         Takes a single audio path/dict OR a list of audio paths/dicts and returns the embedding(s).
         """
@@ -42,6 +43,8 @@ class SentenceTransformersEmbeddingAdapter:
             payload = audio_source
             
         with torch.no_grad():
+            # SentenceTransformers uses default batch_size of 32
+            batch_size = batch_size or 32
             embedding = self.model.encode(payload, batch_size=batch_size, convert_to_tensor=True, show_progress_bar=True)
             # Ensure it is always 2D: [batch, hidden_dim]
             if embedding.ndim == 1:
