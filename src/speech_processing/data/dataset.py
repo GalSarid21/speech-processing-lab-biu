@@ -78,7 +78,6 @@ def load_icbhi_requests(config: DatasetConfig, is_text_only: bool = False, syste
 def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only: bool = False) -> list[tuple[BaseRequest, str]]:
     """Loads the MMAR dataset test split (from text files and HuggingFace)."""
     import os
-    import json
     logger.info(f"Loading {config.dataset_id} dataset from HuggingFace...")
     ds = load_dataset(config.dataset_id, split=config.split, streaming=False)
     df = ds.to_pandas()
@@ -118,7 +117,16 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
             except (SyntaxError, ValueError):
                 pass
         
+        # B5: Convert choices to list (handles numpy array from pandas)
+        choices = list(choices)
+        
+        # B5: Render lettered options
+        lettered_choices = "\n".join([f"{chr(65+i)}. {choice}" for i, choice in enumerate(choices)])
+        
+        # Convert expected answer to corresponding letter if possible
         answer = row['answer']
+        if answer in choices:
+            answer = chr(65 + choices.index(answer))
         
         audio_rel_path = row['audio_path']
         audio_base = config.audio_base_dir or ""
@@ -129,24 +137,23 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
         if experiment_meta:
             prompt_def = experiment_meta.prompt
             
-            # Create a deep copy to avoid mutating the Enum's singleton config
             if isinstance(prompt_def, list):
                 formatted_instruction = prompt_def.copy()
             else:
                 formatted_instruction = prompt_def
                 
             suffix = ""
-            if "transcript" in experiment_meta.experiment_name or "text_only" in experiment_meta.experiment_name:
+            # B1: Use explicit fields instead of substring matching
+            if experiment_meta.use_transcript:
                 suffix += f"\n\nTranscript: {transcript}"
-            suffix += f"\n\nQuestion: {question}\nChoices: {choices}"
+            suffix += f"\n\nQuestion: {question}\nChoices:\n{lettered_choices}"
             
             if isinstance(formatted_instruction, list):
-                # Append the question and choices to the LAST turn in the multi-turn list
                 formatted_instruction[-1] += suffix
             else:
                 formatted_instruction += suffix
         else:
-            formatted_instruction = f"Question: {question}\nChoices: {choices}"
+            formatted_instruction = f"Question: {question}\nChoices:\n{lettered_choices}"
         
         system_prompt = experiment_meta.system_prompt if experiment_meta and hasattr(experiment_meta, 'system_prompt') else None
         
@@ -159,7 +166,10 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
                     "question": question,
                     "choices": choices,
                     "transcript": transcript,
-                    "item_id": item_id
+                    "item_id": item_id,
+                    "modality": row.get("modality", ""),
+                    "category": row.get("category", ""),
+                    "sub-category": row.get("sub-category", "")
                 }
             )
         else:
@@ -172,7 +182,10 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
                     "question": question,
                     "choices": choices,
                     "transcript": transcript,
-                    "item_id": item_id
+                    "item_id": item_id,
+                    "modality": row.get("modality", ""),
+                    "category": row.get("category", ""),
+                    "sub-category": row.get("sub-category", "")
                 }
             )
         results.append((req, answer))
@@ -184,6 +197,7 @@ def get_mmar_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_only
     """Loads and formats few-shot examples for MMAR experiments."""
     import os
     import json
+    import os
     
     if not config.few_shot_ids_file or not os.path.exists(config.few_shot_ids_file):
         logger.warning("No few-shot IDs file found. Cannot load few-shot examples.")
@@ -219,17 +233,23 @@ def get_mmar_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_only
             try: choices = ast.literal_eval(choices)
             except (SyntaxError, ValueError): pass
         
+        choices = list(choices)
+        lettered_choices = "\n".join([f"{chr(65+i)}. {choice}" for i, choice in enumerate(choices)])
+        
         answer = row['answer']
+        if answer in choices:
+            answer = chr(65 + choices.index(answer))
+            
         audio_rel_path = row['audio_path']
         audio_base = config.audio_base_dir or ""
         audio_path = os.path.join(audio_base, audio_rel_path.lstrip('./'))
         
         transcript = transcripts.get(item_id, "[NO TRANSCRIPT]")
         
-        if "transcript" in experiment_meta.experiment_name or "text_only" in experiment_meta.experiment_name:
-            user_text = f"Transcript: {transcript}\n\nQuestion: {question}\nChoices: {choices}"
+        if experiment_meta.few_shot_include_transcript or experiment_meta.use_transcript:
+            user_text = f"Transcript: {transcript}\n\nQuestion: {question}\nChoices:\n{lettered_choices}"
         else:
-            user_text = f"Question: {question}\nChoices: {choices}"
+            user_text = f"Question: {question}\nChoices:\n{lettered_choices}"
 
         fake_cots = {
             "KodXqxwrFiE_00-00-00_00-00-19": "Logically, I hear a clear instructional voice pointing out a specific type of fruit. Acoustically, the speech is direct, well-articulated, and recorded in a quiet environment. Based on this, the speaker specifically points out blueberries.",
@@ -238,11 +258,11 @@ def get_mmar_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_only
         }
 
         assistant_text = answer
-        if "cot" in experiment_meta.experiment_name:
+        if experiment_meta.use_cot:
             reasoning = fake_cots.get(item_id, f"The correct choice is {answer}.")
             assistant_text = f"{COT_START_TAG}\n{reasoning}\n{COT_END_TAG}\n{ANSWER_START_TAG}\n{answer}\n{ANSWER_END_TAG}"
 
-        is_few_shot_text_only = "few_shot_text_only" in experiment_meta.experiment_name
+        is_few_shot_text_only = experiment_meta.few_shot_mode == "text"
             
         turns.append(FewShotTurn(
             audio_path=None if is_few_shot_text_only else audio_path,
@@ -290,6 +310,7 @@ def get_mmar_few_shot_turns_pool(config: DatasetConfig, experiment_meta, is_text
     """Loads all authentic audio few-shot examples into a pool for RAG."""
     import os
     import json
+    import os
     
     if not config.few_shot_ids_file or not os.path.exists(config.few_shot_ids_file):
         logger.warning("No few-shot IDs file found.")
@@ -318,16 +339,22 @@ def get_mmar_few_shot_turns_pool(config: DatasetConfig, experiment_meta, is_text
             try: choices = ast.literal_eval(choices)
             except (SyntaxError, ValueError): pass
         
+        choices = list(choices)
+        lettered_choices = "\n".join([f"{chr(65+i)}. {choice}" for i, choice in enumerate(choices)])
+        
         answer = row['answer']
+        if answer in choices:
+            answer = chr(65 + choices.index(answer))
+            
         audio_rel_path = row['audio_path']
         audio_base = config.audio_base_dir or ""
         audio_path = os.path.join(audio_base, audio_rel_path.lstrip('./'))
         transcript = transcripts.get(item_id, "[NO TRANSCRIPT]")
         
-        if "transcript" in experiment_meta.experiment_name or "text_only" in experiment_meta.experiment_name:
-            user_text = f"Transcript: {transcript}\n\nQuestion: {question}\nChoices: {choices}"
+        if experiment_meta.few_shot_include_transcript or experiment_meta.use_transcript:
+            user_text = f"Transcript: {transcript}\n\nQuestion: {question}\nChoices:\n{lettered_choices}"
         else:
-            user_text = f"Question: {question}\nChoices: {choices}"
+            user_text = f"Question: {question}\nChoices:\n{lettered_choices}"
 
         fake_cots = {
             "KodXqxwrFiE_00-00-00_00-00-19": "Logically, I hear a clear instructional voice pointing out a specific type of fruit. Acoustically, the speech is direct, well-articulated, and recorded in a quiet environment. Based on this, the speaker specifically points out blueberries.",
@@ -336,11 +363,11 @@ def get_mmar_few_shot_turns_pool(config: DatasetConfig, experiment_meta, is_text
         }
 
         assistant_text = answer
-        if "cot" in experiment_meta.experiment_name.lower():
+        if experiment_meta.use_cot:
             reasoning = fake_cots.get(item_id, f"The correct choice is {answer}.")
             assistant_text = f"{COT_START_TAG}\n{reasoning}\n{COT_END_TAG}\n{ANSWER_START_TAG}\n{answer}\n{ANSWER_END_TAG}"
 
-        is_few_shot_text_only = "few_shot_text_only" in experiment_meta.experiment_name
+        is_few_shot_text_only = experiment_meta.few_shot_mode == "text"
             
         pool[item_id] = FewShotTurn(
             audio_path=None if is_few_shot_text_only else audio_path,

@@ -8,6 +8,7 @@ from speech_processing.adapters.transformers import TransformersAdapter
 from speech_processing.config.core import AudioModelConfig, GenerationParams
 from speech_processing.data.dtos import AudioRequest, AudioResponse
 from speech_processing.utils.consts import COT_START_TAG, DEFAULT_SAMPLING_RATE
+
 from speech_processing.models.base import BaseAudioModel
 
 
@@ -50,7 +51,74 @@ class QwenAudioEngine(BaseAudioModel):
             max_model_len=config.max_model_len
         )
 
+
+    def score_choices(self, requests: list[AudioRequest]) -> list[AudioResponse]:
+        import os
+        from vllm import SamplingParams
+        import numpy as np
+        
+        silence_path = get_silence_audio(self.config.target_sr)
+        
+        responses = []
+        for req in requests:
+            # We assume req.metadata["choices"] contains the raw choice strings
+            choices = req.metadata.get("choices", [])
+            if not choices:
+                responses.append(AudioResponse(sample_id=req.audio_path, instruction=req.instruction, generated_text="A", metadata=req.metadata))
+                continue
+                
+            best_choice = "A"
+            best_score = -float('inf')
+            
+            for i, choice_text in enumerate(choices):
+                choice_letter = chr(65 + i)
+                # Formulate the prompt with the choice text appended
+                prompt_text = req.instruction + f" {choice_text}"
+                
+                # We need to construct the prompt dicts for vllm
+                def build_prompt(audio_path):
+                    return [
+                        {"role": "user", "content": [
+                            {"type": "audio_url", "audio_url": {"url": _force_mono_audio(audio_path, self.config.target_sr)}},
+                            {"type": "text", "text": req.instruction}
+                        ]},
+                        {"role": "assistant", "content": choice_text} # Force assistant to say the choice
+                    ]
+                
+                audio_prompt = build_prompt(req.audio_path)
+                silence_prompt = build_prompt(silence_path)
+                
+                sp = SamplingParams(max_tokens=1, prompt_logprobs=1)
+                
+                audio_out = self.adapter.llm.chat(messages=[audio_prompt], sampling_params=sp)[0]
+                silence_out = self.adapter.llm.chat(messages=[silence_prompt], sampling_params=sp)[0]
+                
+                # The logprobs for the assistant's turn are at the end of prompt_logprobs
+                # We need to sum them. For simplicity, we just sum all valid logprobs in the prompt
+                def get_prob(out):
+                    if not out.prompt_logprobs: return -100
+                    return sum([list(p.values())[0].logprob for p in out.prompt_logprobs if p])
+                
+                audio_score = get_prob(audio_out)
+                silence_score = get_prob(silence_out)
+                
+                score = audio_score - silence_score
+                if score > best_score:
+                    best_score = score
+                    best_choice = choice_letter
+                    
+            responses.append(AudioResponse(
+                sample_id=req.audio_path,
+                instruction=req.instruction,
+                generated_text=best_choice,
+                metadata=req.metadata
+            ))
+            
+        return responses
     def batch_infer(self, requests: list[AudioRequest]) -> list[AudioResponse]:
+        if getattr(self.config, 'use_contrastive_scoring', False):
+            return self.score_choices(requests)
+
         batch_size = self.config.max_num_seqs
         responses = []
 
@@ -121,7 +189,7 @@ class QwenAudioEngine(BaseAudioModel):
                     inst = item_insts[step]
                     
                     if step == 0:
-                        content = "<|AUDIO|>\n" + inst
+                        content = ("<|AUDIO|>\n" + inst) if getattr(self.config, 'audio_first', False) else (inst + "\n<|AUDIO|>")
                     else:
                         content = inst
                     
@@ -163,7 +231,8 @@ class QwenAudioEngine(BaseAudioModel):
                     AudioResponse(
                         sample_id=req.audio_path,
                         instruction=inst_str, 
-                        generated_text=out_text.strip()
+                        generated_text=out_text.strip(),
+                        metadata=req.metadata
                     )
                 )
 
@@ -181,13 +250,9 @@ class VoxtralAudioEngine(BaseAudioModel):
             model=config.model_id,
             trust_remote_code=True,
             max_model_len=config.max_model_len,
-            # vLLM defaults to 1 audio per prompt. We hardcode this to 8 across all audio models 
-            # to pre-allocate KV cache for few-shot prompting, which injects multiple audios per prompt.
             limit_mm_per_prompt={"audio": 8},
             gpu_memory_utilization=config.gpu_memory_utilization,
             max_num_seqs=config.max_num_seqs,
-            # Whitelist the entire root filesystem ("/") to bypass vLLM's strict local media security sandbox.
-            # Required because we pass local dataset files via "file://" URI scheme.
             allowed_local_media_path="/",
         )
         self.tokenizer = self.adapter.tokenizer
@@ -195,16 +260,22 @@ class VoxtralAudioEngine(BaseAudioModel):
     def batch_infer(self, requests: list[AudioRequest]) -> list[AudioResponse]:
         import os
         from loguru import logger
+        import json
+        from speech_processing.utils.audio import chunk_audio, crop_audio, get_silence_audio
+        from speech_processing.config.core import GenerationParams
+        from vllm import SamplingParams
         
         if not requests:
             return []
+
+        # T3: Contrastive Scoring
+        if getattr(self.config, 'contrastive_alpha', -1) >= 0.0:
+            return self.score_choices(requests)
 
         first_inst = requests[0].instruction
         num_steps = len(first_inst) if isinstance(first_inst, list) else 1
         final_outputs = [""] * len(requests)
         batch_conversations = [[] for _ in requests]
-        
-
 
         for step in range(num_steps):
             inputs = []
@@ -228,7 +299,6 @@ class VoxtralAudioEngine(BaseAudioModel):
                         elif turn.audio_path is not None:
                             content.append({"type": "audio_url", "audio_url": {"url": _force_mono_audio(turn.audio_path, self.config.target_sr)}})
                             
-                        # Prepend the system prompt strictly to the FIRST user message to bypass Voxtral tokenizer limitations
                         user_text = (sys_prompt + turn.user_text) if i == 0 else turn.user_text
                         content.append({"type": "text", "text": user_text})
                         conv.append({"role": "user", "content": content})
@@ -237,21 +307,58 @@ class VoxtralAudioEngine(BaseAudioModel):
                 # Add the target user turn
                 if step == 0:
                     sys_prompt = f"{req.system_prompt}\n\n" if req.system_prompt else ""
-                    # If there were no few-shot turns, this target instruction is the first message
                     target_inst = (sys_prompt + inst) if not req.few_shot_turns else inst
                     
-                    content = [
-                        {"type": "audio_url", "audio_url": {"url": _force_mono_audio(req.audio_path, self.config.target_sr)}},
-                        {"type": "text", "text": target_inst},
-                    ]
+                    content = []
+                    
+                    if getattr(self.config, 'chunked_audio', False):
+                        chunks = chunk_audio(req.audio_path, max_chunk_len_s=5.0, max_chunks=6)
+                        for c_idx, (c_path, start_s, end_s) in enumerate(chunks):
+                            content.append({"type": "text", "text": f"Segment {c_idx+1} ({start_s:.1f}-{end_s:.1f} s):"})
+                            content.append({"type": "audio_url", "audio_url": {"url": _force_mono_audio(c_path, self.config.target_sr)}})
+                        content.append({"type": "text", "text": "Full Audio:"})
+                        content.append({"type": "audio_url", "audio_url": {"url": _force_mono_audio(req.audio_path, self.config.target_sr)}})
+                        content.append({"type": "text", "text": target_inst})
+                        
+                    else:
+                        content = [
+                            {"type": "audio_url", "audio_url": {"url": _force_mono_audio(req.audio_path, self.config.target_sr)}},
+                            {"type": "text", "text": target_inst},
+                        ]
                 else:
-                    content = [{"type": "text", "text": inst}]
+                    if getattr(self.config, 'two_pass_localization', False) and step == 1:
+                        # Parse JSON from previous assistant message
+                        prev_msg = conv[-1]["content"]
+                        try:
+                            # Use regex to find JSON
+                            import re
+                            match = re.search(r'\{[^{}]*\}', prev_msg)
+                            if match:
+                                times = json.loads(match.group(0))
+                                start = max(0, float(times["start"]) - 0.5)
+                                end = float(times["end"]) + 0.5
+                                cropped_path = crop_audio(req.audio_path, start, end)
+                                
+                                content = [
+                                    {"type": "text", "text": "Full Audio:"},
+                                    {"type": "audio_url", "audio_url": {"url": _force_mono_audio(req.audio_path, self.config.target_sr)}},
+                                    {"type": "text", "text": f"Cropped Segment ({start:.1f}-{end:.1f} s):"},
+                                    {"type": "audio_url", "audio_url": {"url": _force_mono_audio(cropped_path, self.config.target_sr)}},
+                                    {"type": "text", "text": inst},
+                                ]
+                            else:
+                                raise ValueError("No JSON found")
+                        except Exception as e:
+                            logger.warning(f"Fallback on localization parsing: {e}")
+                            content = [
+                                {"type": "audio_url", "audio_url": {"url": _force_mono_audio(req.audio_path, self.config.target_sr)}},
+                                {"type": "text", "text": inst},
+                            ]
+                    else:
+                        content = [{"type": "text", "text": inst}]
                     
                 conv.append({"role": "user", "content": content})
                 
-                # ASSISTANT PREFILLING (Forced Chain-of-Thought)
-                # If the dataset runner specifies an assistant prefill (e.g., forcing an XML tag),
-                # we structurally push it here so the engine remains agnostic to the prompt schema.
                 if req.assistant_prefill:
                     conv.append({"role": "assistant", "content": req.assistant_prefill})
                 
@@ -260,20 +367,22 @@ class VoxtralAudioEngine(BaseAudioModel):
             logger.info(f"Processing audio batch of size {len(requests)} (Turn {step+1}/{num_steps})...")
 
             try:
-                sampling_params = GenerationParams(
+                # Need generation params
+                sp = GenerationParams(
                     temperature=self.config.temperature,
                     top_p=self.config.top_p,
-                    max_new_tokens=self.config.max_new_tokens
+                    max_new_tokens=self.config.max_new_tokens,
+                    stop=self.config.stop
                 )
                 
                 generated_texts = self.adapter.generate_batch(
-                    prompts=inputs, sampling_params=sampling_params
+                    prompts=inputs, sampling_params=sp
                 )
                 
                 for idx, gen_text in enumerate(generated_texts):
                     item_inst_check = requests[idx].instruction[step] if isinstance(requests[idx].instruction, list) else requests[idx].instruction
-                    if req.assistant_prefill:
-                        gen_text = req.assistant_prefill + gen_text
+                    if requests[idx].assistant_prefill:
+                        gen_text = requests[idx].assistant_prefill + gen_text
                         batch_conversations[idx].pop()
                         
                     batch_conversations[idx].append({"role": "assistant", "content": gen_text})
@@ -294,8 +403,79 @@ class VoxtralAudioEngine(BaseAudioModel):
                 AudioResponse(
                     sample_id=req.audio_path,
                     instruction=inst_str, 
-                    generated_text=out_text.strip()
+                    generated_text=out_text.strip(),
+                    metadata=req.metadata
                 )
             )
 
+        return responses
+
+    def score_choices(self, requests: list[AudioRequest]) -> list[AudioResponse]:
+        from vllm import SamplingParams
+        from speech_processing.utils.audio import get_silence_audio
+        import librosa
+        import numpy as np
+        
+        silence_path = get_silence_audio(self.config.target_sr)
+        alpha = self.config.contrastive_alpha
+        
+        responses = []
+        for req in requests:
+            choices = req.metadata.get("choices", [])
+            if not choices:
+                responses.append(AudioResponse(sample_id=req.audio_path, instruction=req.instruction, generated_text="A", metadata=req.metadata))
+                continue
+                
+            best_choice = "A"
+            best_score = -float('inf')
+            
+            # Match duration for silence
+            y, sr = librosa.load(req.audio_path, sr=self.config.target_sr)
+            dur_s = len(y) / sr
+            from speech_processing.utils.audio import crop_audio
+            import soundfile as sf
+            import os, tempfile
+            fd, custom_silence = tempfile.mkstemp(suffix=".wav")
+            os.close(fd)
+            sf.write(custom_silence, np.zeros(int(dur_s * self.config.target_sr), dtype=np.float32), self.config.target_sr)
+            
+            for i, choice_text in enumerate(choices):
+                choice_letter = chr(65 + i)
+                
+                def build_prompt(audio_path):
+                    return [
+                        {"role": "user", "content": [
+                            {"type": "audio_url", "audio_url": {"url": _force_mono_audio(audio_path, self.config.target_sr)}},
+                            {"type": "text", "text": req.instruction}
+                        ]},
+                        {"role": "assistant", "content": choice_text}
+                    ]
+                
+                audio_prompt = build_prompt(req.audio_path)
+                silence_prompt = build_prompt(custom_silence)
+                
+                sp = SamplingParams(max_tokens=1, prompt_logprobs=1)
+                
+                audio_out = self.adapter.llm.chat(messages=[audio_prompt], sampling_params=sp)[0]
+                silence_out = self.adapter.llm.chat(messages=[silence_prompt], sampling_params=sp)[0]
+                
+                def get_prob(out):
+                    if not out.prompt_logprobs: return -100
+                    return sum([list(p.values())[0].logprob for p in out.prompt_logprobs if p])
+                
+                audio_score = get_prob(audio_out)
+                silence_score = get_prob(silence_out)
+                
+                score = audio_score - (alpha * silence_score)
+                if score > best_score:
+                    best_score = score
+                    best_choice = choice_letter
+                    
+            responses.append(AudioResponse(
+                sample_id=req.audio_path,
+                instruction=req.instruction,
+                generated_text=best_choice,
+                metadata=req.metadata
+            ))
+            
         return responses

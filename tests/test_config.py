@@ -24,5 +24,6 @@ def test_factories_initialization():
     
     assert_that(config.output_dir).is_equal_to("./test_results")
     assert_that(config.audio_model).is_not_none()
+    assert config.audio_model is not None
     assert_that(config.audio_model.model_id).is_equal_to("mistralai/Voxtral-Small-24B-2507")
     assert_that(config.audio_model.gpu_memory_utilization).is_equal_to(0.8)

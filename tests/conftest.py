@@ -11,4 +11,4 @@ class DummyMock:
     def __iter__(self):
         return iter([])
 
-sys.modules['vllm'] = DummyMock()
+sys.modules['vllm'] = __import__('types').ModuleType('vllm')

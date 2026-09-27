@@ -11,9 +11,10 @@ from speech_processing.models.base import BaseJudgeModel
 
 
 class QwenJudge(BaseJudgeModel):
-    def __init__(self, config: JudgeConfig, template_func: Callable[[JudgeRequest], list[dict[str, str]]]) -> None:
+    def __init__(self, config: JudgeConfig, template_func: Callable[[JudgeRequest], list[dict[str, str]]], schema_class: type = EvaluationResult) -> None:
         self.config = config
         self.template_func = template_func
+        self.schema_class = schema_class
 
         logger.info(f"Loading Judge Model from {config.model_id} via vLLM...")
 
@@ -43,7 +44,7 @@ class QwenJudge(BaseJudgeModel):
             f"Evaluating batch of size {len(requests)} with guided JSON decoding..."
         )
 
-        schema_str = json.dumps(EvaluationResult.model_json_schema())
+        schema_str = json.dumps(self.schema_class.model_json_schema())
         sampling_params = GenerationParams(
             temperature=0.0,
             top_p=1.0,
@@ -62,25 +63,20 @@ class QwenJudge(BaseJudgeModel):
         responses = []
         for req, output_text in zip(requests, generated_texts):
             try:
-                evaluation = EvaluationResult.model_validate_json(output_text)
+                evaluation = self.schema_class.model_validate_json(output_text)
             except ValueError as e:
                 logger.error(
                     f"Failed to parse JSON for request. Raw output: {output_text}. Error: {e}"
                 )
-                evaluation = EvaluationResult(
-                    reasoning="Parse failed.",
-                    acoustic_accuracy=0,
-                    diagnostic_accuracy=0,
-                    hallucination_penalty=1,
-                    extracted_class="Unknown"
-                )
+                evaluation = self.schema_class.fallback()
 
             responses.append(JudgeResponse(
                 sample_id=req.sample_id,
                 instruction=req.instruction,
                 generated_text=req.generated_text,
                 ground_truth=req.ground_truth,
-                evaluation=evaluation
+                evaluation=evaluation,
+                metadata=req.metadata
             ))
 
         return responses

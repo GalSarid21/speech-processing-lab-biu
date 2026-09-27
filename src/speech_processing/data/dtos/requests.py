@@ -12,13 +12,13 @@ class BaseRequest(BaseModel):
     instruction: str | list[str]
     assistant_prefill: str | None = None
     system_prompt: str | None = None
+    few_shot_turns: list[FewShotTurn] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
 
 
 class AudioRequest(BaseRequest):
     audio_path: str
     audio_bytes: bytes | None = None
-    few_shot_turns: list[FewShotTurn] = Field(default_factory=list)
-    metadata: dict = Field(default_factory=dict)
 
 
 class JudgeRequestParseError(Exception):
@@ -29,6 +29,7 @@ class JudgeRequest(BaseRequest):
     sample_id: str
     generated_text: str
     ground_truth: str
+    metadata: dict = Field(default_factory=dict)
 
     @classmethod
     def from_json(cls, json_str: str) -> 'JudgeRequest':
@@ -41,5 +42,4 @@ class JudgeRequest(BaseRequest):
 
 
 class TextRequest(BaseRequest):
-    few_shot_turns: list[FewShotTurn] = Field(default_factory=list)
-    metadata: dict = Field(default_factory=dict)
+    pass

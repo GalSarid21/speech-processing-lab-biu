@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic import BaseModel, Field
 
 
@@ -7,6 +8,7 @@ class BaseModelConfig(BaseModel):
     max_num_seqs: int = Field(description="Batch size for the model")
     max_new_tokens: int = Field(gt=0)
     gpu_memory_utilization: float = Field(description="Fraction of GPU memory to allocate for vLLM")
+    stop: list[str] | None = None
 
 
 class JudgeConfig(BaseModelConfig):
@@ -26,6 +28,11 @@ class AudioModelConfig(BaseModelConfig):
     temperature: float = Field(description="Generation temperature")
     top_p: float = Field(description="Top p sampling")
     target_sr: int = Field(description="Target sample rate for the audio model")
+    
+    # Flags passed through from ExperimentMeta
+    chunked_audio: bool = False
+    two_pass_localization: bool = False
+    contrastive_alpha: float = 0.0
 
 
 class DatasetConfig(BaseModel):
@@ -46,6 +53,29 @@ class ExperimentMeta(BaseModel):
     batch_size: int
     system_prompt: str | None = None
     rag_mapping_file: str | None = None
+    use_transcript: bool = False
+    few_shot_mode: Literal["none", "text", "audio", "rag"] = "none"
+    few_shot_include_transcript: bool = False
+    use_cot: bool = False
+    
+    # T1 Flags
+    inject_diarized_transcript: bool = False
+    inject_acoustic_features: bool = False
+    
+    # T2 Flags
+    chunked_audio: bool = False
+    two_pass_localization: bool = False
+    
+    # T3 Flags
+    contrastive_alpha: float = 0.0
+    
+    # T4 Flags
+    num_shuffled_variants: int = 1
+    
+    # T5 Flags
+    audio_first_instruction: bool = False
+    
+    deprecated: bool = False
 
 
 class AppConfig(BaseModel):
@@ -64,3 +94,4 @@ class GenerationParams(BaseModel):
     top_p: float
     max_new_tokens: int
     json_schema: str | None = None
+    stop: list[str] | None = None

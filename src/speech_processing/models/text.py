@@ -48,12 +48,15 @@ class GemmaTextModel(BaseTextModel):
 
         logger.info(f"Evaluating text batch of size {len(requests)} with thinking={'ON' if self.config.enable_thinking else 'OFF'}...")
 
-        sampling_params = SamplingParams(
-            temperature=self.config.temperature,
-            top_p=self.config.top_p,
-            top_k=self.config.top_k,
-            max_tokens=self.config.max_new_tokens,
-        )
+        sampling_kwargs = {
+            "temperature": self.config.temperature,
+            "top_p": self.config.top_p,
+            "top_k": self.config.top_k,
+            "max_tokens": self.config.max_new_tokens,
+        }
+        if hasattr(self.config, "stop") and self.config.stop:
+            sampling_kwargs["stop"] = self.config.stop
+        sampling_params = SamplingParams(**sampling_kwargs)
 
         try:
             outputs = self.llm.generate(prompts=prompts, sampling_params=sampling_params)
@@ -64,11 +67,20 @@ class GemmaTextModel(BaseTextModel):
 
         responses = []
         for req, output_text in zip(requests, generated_texts):
+            # Strip any thinking channel before scoring
+            import re
+            output_text = re.sub(r'<\|?[tT]hink\|?>.*?</\|?[tT]hink\|?>', '', output_text, flags=re.DOTALL).strip()
+            
+            sample_id = "batch_text"
+            if req.metadata and "item_id" in req.metadata:
+                sample_id = req.metadata["item_id"]
+                
             responses.append(
                 TextResponse(
-                    sample_id="batch_text", # Sample ID should ideally come from req if we add it
+                    sample_id=sample_id,
                     instruction=req.instruction,
-                    generated_text=output_text
+                    generated_text=output_text,
+                    metadata=req.metadata
                 )
             )
 

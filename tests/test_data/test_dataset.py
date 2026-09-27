@@ -43,6 +43,7 @@ def test_dataset_filtering_and_padding(mocker, mock_dataset_config):
     # Ensure all elements are AudioRequest DTOs and string ground truths
     for req, label in results:
         assert_that(req.instruction).starts_with("prompt")
+        assert isinstance(req, __import__('speech_processing.data.dtos.requests', fromlist=['AudioRequest']).AudioRequest)
         assert_that(req.audio_path).ends_with(".wav")
         assert_that(req.audio_bytes).is_not_none()
         assert_that(label).is_in("COPD", "Healthy", "FakeDisease")
@@ -114,6 +115,7 @@ def test_load_mmar_requests(mocker, mock_dataset_config):
     # Check ID1 (Has transcript)
     req1, gt1 = results[0]
     assert_that(gt1).is_equal_to("Dog")
+    assert isinstance(req1, __import__('speech_processing.data.dtos.requests', fromlist=['AudioRequest']).AudioRequest)
     assert_that(req1.audio_path).is_equal_to("data/MMAR/audio/id1.wav")
     assert_that(req1.metadata["question"]).is_equal_to("What sound is this?")
     assert_that(req1.metadata["choices"]).is_equal_to(["Dog", "Cat"]) # Evaluated list!

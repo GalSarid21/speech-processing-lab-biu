@@ -153,10 +153,18 @@ def create_mmar_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
             gpu_pct=gpu_pct
         )
     else:
-        kwargs["audio_model"] = create_voxtral_config(
+        audio_config = create_voxtral_config(
             max_num_seqs=getattr(args, "max_seqs", 256),
             max_new_tokens=getattr(experiment_meta, "max_new_tokens", 256),
             gpu_pct=gpu_pct
         )
+        if experiment_meta.few_shot_mode == "rag":
+            audio_config.stop = ["\n\nQuestion:", "\nQuestion:"]
+            
+        audio_config.chunked_audio = getattr(experiment_meta, "chunked_audio", False)
+        audio_config.two_pass_localization = getattr(experiment_meta, "two_pass_localization", False)
+        audio_config.contrastive_alpha = getattr(experiment_meta, "contrastive_alpha", 0.0)
+            
+        kwargs["audio_model"] = audio_config
     
     return AppConfig(**kwargs)

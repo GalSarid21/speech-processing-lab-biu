@@ -17,6 +17,8 @@ class VLLMAdapter(BaseGenerationAdapter):
             "top_p": sampling_params.top_p,
             "max_tokens": sampling_params.max_new_tokens
         }
+        if hasattr(sampling_params, "stop") and sampling_params.stop:
+            kwargs["stop"] = sampling_params.stop
         
         vllm_params = None
         if sampling_params.json_schema:

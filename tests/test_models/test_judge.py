@@ -52,6 +52,7 @@ def test_judge_batch_evaluate_success(mocker, mock_judge_config):
     assert_that(responses).is_length(1)
     
     eval_obj = responses[0].evaluation
+    assert isinstance(eval_obj, __import__('speech_processing.data.dtos.responses', fromlist=['EvaluationResult']).EvaluationResult)
     assert_that(eval_obj.acoustic_accuracy).is_equal_to(9)
     assert_that(eval_obj.extracted_class).is_equal_to("COPD")
     
@@ -78,6 +79,7 @@ def test_judge_batch_evaluate_json_fallback(mocker, mock_judge_config):
     # It should seamlessly fallback without crashing!
     eval_obj = responses[0].evaluation
     assert_that(eval_obj.reasoning).is_equal_to("Parse failed.")
+    assert isinstance(eval_obj, __import__('speech_processing.data.dtos.responses', fromlist=['EvaluationResult']).EvaluationResult)
     assert_that(eval_obj.acoustic_accuracy).is_equal_to(0)
     assert_that(eval_obj.hallucination_penalty).is_equal_to(1)
     assert_that(eval_obj.extracted_class).is_equal_to("Unknown")

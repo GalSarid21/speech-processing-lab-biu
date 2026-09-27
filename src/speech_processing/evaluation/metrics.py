@@ -3,6 +3,7 @@ from sklearn.metrics import classification_report
 from speech_processing.data.dtos.metrics import AggregateMetrics
 from speech_processing.data.dtos.responses import (
     EvaluationResult,
+    MMAREvaluationResult,
     JudgeResponse,
 )
 
@@ -22,29 +23,42 @@ def calculate_metrics(evaluations: list[JudgeResponse]) -> AggregateMetrics | No
     if not evaluations:
         return None
 
-    max_acoustic = _get_max_rate("acoustic_accuracy")
-    max_diagnostic = _get_max_rate("diagnostic_accuracy")
+    if isinstance(evaluations[0].evaluation, MMAREvaluationResult):
+        # MMAR Metrics
+        correct = sum(1 for e in evaluations if e.evaluation.is_correct)
+        acc = (correct / len(evaluations)) * 100.0
+        
+        return AggregateMetrics(
+            avg_acoustic_pct=0.0,
+            avg_diagnostic_pct=acc, # Using diagnostic pct to store accuracy
+            hallucination_rate_pct=0.0,
+            classification_report=f"Overall Accuracy: {acc:.2f}%"
+        )
+    else:
+        # ICBHI Metrics
+        max_acoustic = _get_max_rate("acoustic_accuracy")
+        max_diagnostic = _get_max_rate("diagnostic_accuracy")
 
-    total_acoustic = sum(eval.evaluation.acoustic_accuracy for eval in evaluations)
-    total_diagnostic = sum(eval.evaluation.diagnostic_accuracy for eval in evaluations)
-    total_hallucination = sum(eval.evaluation.hallucination_penalty for eval in evaluations)
+        total_acoustic = sum(eval.evaluation.acoustic_accuracy for eval in evaluations)
+        total_diagnostic = sum(eval.evaluation.diagnostic_accuracy for eval in evaluations)
+        total_hallucination = sum(eval.evaluation.hallucination_penalty for eval in evaluations)
 
-    num_evals = len(evaluations)
+        num_evals = len(evaluations)
 
-    avg_acoustic = (total_acoustic / num_evals / max_acoustic) * _PCT
-    avg_diagnostic = (total_diagnostic / num_evals / max_diagnostic) * _PCT
-    avg_hallucination = (total_hallucination / num_evals) * _PCT
+        avg_acoustic = (total_acoustic / num_evals / max_acoustic) * _PCT
+        avg_diagnostic = (total_diagnostic / num_evals / max_diagnostic) * _PCT
+        avg_hallucination = (total_hallucination / num_evals) * _PCT
 
-    # Classification Metrics
-    y_true = [eval.ground_truth for eval in evaluations]
-    y_pred = [eval.evaluation.extracted_class for eval in evaluations]
+        # Classification Metrics
+        y_true = [eval.ground_truth for eval in evaluations]
+        y_pred = [eval.evaluation.extracted_class for eval in evaluations]
 
-    # zero_division=0 to prevent warnings if a class was completely missed
-    clf_report = classification_report(y_true, y_pred, zero_division=0)
+        # zero_division=0 to prevent warnings if a class was completely missed
+        clf_report = classification_report(y_true, y_pred, zero_division=0)
 
-    return AggregateMetrics(
-        avg_acoustic_pct=avg_acoustic,
-        avg_diagnostic_pct=avg_diagnostic,
-        hallucination_rate_pct=avg_hallucination,
-        classification_report=clf_report
-    )
+        return AggregateMetrics(
+            avg_acoustic_pct=avg_acoustic,
+            avg_diagnostic_pct=avg_diagnostic,
+            hallucination_rate_pct=avg_hallucination,
+            classification_report=clf_report
+        )
