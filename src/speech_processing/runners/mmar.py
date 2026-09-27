@@ -103,6 +103,27 @@ class ExperimentVersion(Enum):
         batch_size=8,
         rag_mapping_file="data/mmar_rag_mapping.json"
     )
+    v15 = ExperimentMeta(
+        experiment_name="rag_few_shots_cot",
+        prompt="Here are some similar examples of audio, questions, and reasoning chains. Listen to them, then carefully evaluate the final test audio. Describe it logically (speakers, context) and acoustically (tone, pitch, speech quality). Finally, select the best matching choice.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>",
+        max_new_tokens=1024,
+        batch_size=4,
+        rag_mapping_file="data/mmar_rag_mapping.json"
+    )
+    v16 = ExperimentMeta(
+        experiment_name="rag_few_shots_transcript",
+        prompt="Here are some similar examples with audio, whisper transcripts, questions, and answers. Evaluate the final test audio/transcript and answer the multiple-choice question. Respond with the exact text of the correct choice.",
+        max_new_tokens=1024,
+        batch_size=8,
+        rag_mapping_file="data/mmar_rag_mapping.json"
+    )
+    v17 = ExperimentMeta(
+        experiment_name="rag_few_shots_transcript_cot",
+        prompt="Here are some similar examples with audio, transcripts, questions, and reasoning chains. Evaluate the final test audio and transcript. Describe it logically and acoustically. Finally, select the best matching choice.\n\nFormat your response exactly as follows:\n<analysis>\n[Your detailed logical and acoustic analysis here]\n</analysis>\n<answer>\n[The exact text of the correct choice]\n</answer>",
+        max_new_tokens=1024,
+        batch_size=4,
+        rag_mapping_file="data/mmar_rag_mapping.json"
+    )
 
     @classmethod
     def get_version(cls, version_str: str) -> 'ExperimentVersion':
