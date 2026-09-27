@@ -94,12 +94,17 @@ class TransformersEmbeddingAdapter:
         torch_dtype = MODEL_DEVICE_DTYPE_MAPPING.get(self.device, torch.float32)
             
         logger.info(f"Loading Embedding Model {model_id} onto {self.device} via transformers...")
-        self.processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+        # Some models (like Ovis) store everything in a 'model' subfolder
+        kwargs = {"trust_remote_code": True}
+        if "Ovis-Omni-Embedding" in model_id:
+            kwargs["subfolder"] = "model"
+            
+        self.processor = AutoProcessor.from_pretrained(model_id, **kwargs)
         self.model = AutoModel.from_pretrained(
             model_id, 
-            trust_remote_code=True,
             torch_dtype=torch_dtype,
-            device_map=self.device
+            device_map=self.device,
+            **kwargs
         )
         self.model.eval()
 

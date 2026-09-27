@@ -3,11 +3,11 @@ from urllib.request import urlopen
 
 import librosa
 from loguru import logger
-from speech_processing.utils.consts import COT_START_TAG, DEFAULT_SAMPLING_RATE
 
 from speech_processing.adapters.transformers import TransformersAdapter
 from speech_processing.config.core import AudioModelConfig, GenerationParams
 from speech_processing.data.dtos import AudioRequest, AudioResponse
+from speech_processing.utils.consts import COT_START_TAG, DEFAULT_SAMPLING_RATE
 from speech_processing.models.base import BaseAudioModel
 
 
@@ -195,7 +195,6 @@ class VoxtralAudioEngine(BaseAudioModel):
     def batch_infer(self, requests: list[AudioRequest]) -> list[AudioResponse]:
         import os
         from loguru import logger
-from speech_processing.utils.consts import COT_START_TAG, DEFAULT_SAMPLING_RATE
         
         if not requests:
             return []
