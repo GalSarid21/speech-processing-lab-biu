@@ -224,13 +224,14 @@ Format your response exactly as follows:
 
     @classmethod
     def get_version(cls, version_str: str) -> 'ExperimentVersion':
-        for name, member in cls.__members__.items():
-            if member.value.experiment_name == version_str:
-                if getattr(member.value, 'deprecated', False):
-                    reason = getattr(member.value, 'deprecation_reason', 'Unknown reason')
-                    raise ValueError(f"Experiment '{version_str}' is deprecated: {reason}")
-                return member
-        raise ValueError(f"Unknown experiment version: {version_str}")
+        try:
+            member = cls[version_str.lower()]
+            if getattr(member.value, 'deprecated', False):
+                reason = getattr(member.value, 'deprecation_reason', 'Unknown reason')
+                raise ValueError(f"Experiment '{version_str}' is deprecated: {reason}")
+            return member
+        except KeyError:
+            raise ValueError(f"Unknown experiment version: {version_str}. Available versions: {[e.name for e in cls]}")
 
 
 def run_mmar(args):
