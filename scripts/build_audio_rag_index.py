@@ -11,7 +11,18 @@ from datasets import load_dataset
 from speech_processing.models.audio_embeddings import LCOAudioEmbedder
 
 def main():
-    parser = argparse.ArgumentParser(description="Build Acoustic RAG Index dynamically via YAML config.")
+
+    import argparse
+    import yaml
+    import json
+    import os
+    import torch
+    from loguru import logger
+    from tqdm import tqdm
+    from datasets import load_dataset
+    from speech_processing.models.audio_embeddings import LCOAudioEmbedder
+
+    parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True, help="Path to the YAML configuration file.")
     args = parser.parse_args()
 
@@ -23,17 +34,16 @@ def main():
         config = yaml.safe_load(f)["rag_indexer"]
 
     logger.info(f"Loaded configuration from {args.config}")
-
     logger.info(f"Initializing Audio Embedder ({config['model_id']})...")
+    
     embedder = LCOAudioEmbedder(model_id=config['model_id'])
 
-    # IO Paths
     few_shot_ids_file = config["io"]["candidate_ids_file"]
     test_ids_file = config["io"]["query_ids_file"]
     output_mapping_file = config["io"]["output_mapping_file"]
     top_k = config["parameters"].get("top_k", 3)
+    batch_size = config["parameters"].get("batch_size", 16)
     
-    # Load IDs
     with open(few_shot_ids_file, "r") as f:
         candidate_ids = [line.strip() for line in f if line.strip()]
     with open(test_ids_file, "r") as f:
@@ -41,7 +51,6 @@ def main():
         
     logger.info(f"Loaded {len(candidate_ids)} candidate IDs and {len(query_ids)} query IDs.")
     
-    # Load HF Dataset
     dataset_id = config["dataset"]["id"]
     dataset_split = config["dataset"]["split"]
     logger.info(f"Loading {dataset_id} [{dataset_split}] dataset...")
@@ -50,73 +59,83 @@ def main():
     
     id_col = config["dataset"]["id_column"]
     path_col = config["dataset"]["audio_path_column"]
+    audio_base_dir = config["dataset"].get("audio_base_dir", "")
 
     def get_audio_path(item_id):
         row = df[df[id_col] == item_id]
         if row.empty:
             return None
-            
-        audio_base_dir = config["dataset"].get("audio_base_dir", "")
-        
-        # Standardize path extraction
         if 'file' in row.columns and isinstance(row.iloc[0]['file'], str):
             return os.path.join(audio_base_dir, str(row.iloc[0]['file']).lstrip('./'))
         if path_col in row.columns:
             return os.path.join(audio_base_dir, str(row.iloc[0][path_col]).lstrip('./'))
         return None
 
-    # Phase 1: Embed Candidates
-    logger.info("--- Embedding Candidates ---")
-    candidate_embeddings = {}
-    for cid in tqdm(candidate_ids, desc="Embedding Candidates"):
+    # PHASE 1: Embed Candidates (Batched)
+    logger.info("--- Embedding Candidates (Batched) ---")
+    valid_cand_ids = []
+    valid_cand_paths = []
+    for cid in candidate_ids:
         path = get_audio_path(cid)
         if path and os.path.exists(path):
-            try:
-                candidate_embeddings[cid] = embedder.embed_audio(path)
-            except Exception as e:
-                logger.warning(f"Failed to embed candidate {cid}: {e}")
+            valid_cand_ids.append(cid)
+            valid_cand_paths.append(path)
         else:
-            logger.warning(f"Audio path not found for candidate {cid}: {path}")
+            logger.warning(f"Audio path not found for candidate {cid}")
 
-    if not candidate_embeddings:
-        logger.error("No candidate embeddings were generated! Cannot proceed.")
+    if not valid_cand_paths:
+        logger.error("No valid candidate paths found! Cannot proceed.")
         return
 
-    # Phase 2: Embed Queries and Compute RAG Matrix
+    # A single batched call across the GPU
+    cand_tensor = embedder.embed_audio(valid_cand_paths, batch_size=batch_size)
+    logger.info(f"Generated candidate tensor of shape {cand_tensor.shape}")
+
+    # PHASE 2: Embed Queries (Batched)
     logger.info("--- Embedding Queries & Computing Similarity Matrix ---")
+    valid_query_ids = []
+    valid_query_paths = []
+    for qid in query_ids:
+        path = get_audio_path(qid)
+        if path and os.path.exists(path):
+            valid_query_ids.append(qid)
+            valid_query_paths.append(path)
+        else:
+            logger.warning(f"Audio path not found for query {qid}")
+            
+    if not valid_query_paths:
+        logger.error("No valid query paths found!")
+        return
+
+    # A single batched call across the GPU
+    query_tensor = embedder.embed_audio(valid_query_paths, batch_size=batch_size)
+    logger.info(f"Generated query tensor of shape {query_tensor.shape}")
+
+    # PHASE 3: Compute Cross-Similarity and Top-K
     rag_mapping = {}
     
-    cand_ids_list = list(candidate_embeddings.keys())
-    cand_tensor = torch.cat([candidate_embeddings[cid] for cid in cand_ids_list], dim=0) 
-    
-    for qid in tqdm(query_ids, desc="Embedding & Mapping Queries"):
-        path = get_audio_path(qid)
-        if not path or not os.path.exists(path):
-            logger.warning(f"Audio path not found for query {qid}")
-            continue
+    # query_tensor is [Q, D], cand_tensor is [C, D]
+    # SentenceTransformer similarity natively handles (Q, D) vs (C, D) -> (Q, C)
+    try:
+        sims_matrix = embedder.compute_similarity(query_tensor, cand_tensor)
+        
+        k = min(top_k, len(valid_cand_ids))
+        top_scores, top_indices = torch.topk(sims_matrix, k, dim=-1)
+        
+        for idx, qid in enumerate(valid_query_ids):
+            indices_for_query = top_indices[idx]
+            rag_mapping[qid] = [valid_cand_ids[i.item()] for i in indices_for_query]
             
-        try:
-            query_emb = embedder.embed_audio(path)
-            
-            # Cosine similarity
-            sims = embedder.compute_similarity(query_emb, cand_tensor).squeeze()
-            
-            k = min(top_k, len(cand_ids_list))
-            top_scores, top_indices = torch.topk(sims, k)
-            
-            top_k_ids = [cand_ids_list[i.item()] for i in top_indices]
-            rag_mapping[qid] = top_k_ids
-            
-        except Exception as e:
-            logger.warning(f"Failed to process query {qid}: {e}")
+    except Exception as e:
+        logger.error(f"Failed to compute similarity matrix: {e}")
+        return
 
-    # Phase 3: Save Mapping
+    # Save Mapping
     os.makedirs(os.path.dirname(output_mapping_file), exist_ok=True)
     with open(output_mapping_file, "w") as f:
         json.dump(rag_mapping, f, indent=4)
         
-    logger.info(f"RAG mapping successfully saved to {output_mapping_file}")
-    logger.info(f"Mapped {len(rag_mapping)} queries to their top-{top_k} acoustic neighbors.")
+    logger.info(f"Successfully computed RAG mappings for {len(rag_mapping)} queries and saved to {output_mapping_file}")
 
 if __name__ == "__main__":
     main()

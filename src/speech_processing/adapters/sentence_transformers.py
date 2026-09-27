@@ -28,20 +28,24 @@ class SentenceTransformersEmbeddingAdapter:
         )
         self.model.eval()
         
-    def embed_audio(self, audio_source) -> torch.Tensor:
+    def embed_audio(self, audio_source, batch_size: int = 16) -> torch.Tensor:
         """
-        Takes an audio path, URL, or multimodal dict and returns the embedding.
+        Takes a single audio path/dict OR a list of audio paths/dicts and returns the embedding(s).
         """
         import torch
         
-        # sentence-transformers natively handles multimodal dicts for LCO-Embedding
-        if isinstance(audio_source, str):
+        if isinstance(audio_source, list):
+            payload = [{"audio": x} if isinstance(x, str) else x for x in audio_source]
+        elif isinstance(audio_source, str):
             payload = {"audio": audio_source}
         else:
             payload = audio_source
             
         with torch.no_grad():
-            embedding = self.model.encode(payload, convert_to_tensor=True)
+            embedding = self.model.encode(payload, batch_size=batch_size, convert_to_tensor=True, show_progress_bar=True)
+            # Ensure it is always 2D: [batch, hidden_dim]
+            if embedding.ndim == 1:
+                embedding = embedding.unsqueeze(0)
             return embedding.clone().cpu()
 
     def compute_similarity(self, query_emb: torch.Tensor, cand_emb: torch.Tensor) -> torch.Tensor:
