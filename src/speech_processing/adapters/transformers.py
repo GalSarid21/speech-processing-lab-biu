@@ -80,7 +80,7 @@ class TransformersAdapter(BaseGenerationAdapter):
 class TransformersEmbeddingAdapter:
     def __init__(self, model_id: str):
         import torch
-        from transformers import AutoProcessor, AutoModel
+        from transformers import AutoProcessor, AutoModelForCausalLM
         from loguru import logger
         from speech_processing.utils.consts import MODEL_DEVICE_DTYPE_MAPPING
         
@@ -100,7 +100,8 @@ class TransformersEmbeddingAdapter:
             kwargs["subfolder"] = "model"
             
         self.processor = AutoProcessor.from_pretrained(model_id, **kwargs)
-        self.model = AutoModel.from_pretrained(
+        
+        self.model = AutoModelForCausalLM.from_pretrained(
             model_id, 
             torch_dtype=torch_dtype,
             device_map=self.device,
@@ -117,9 +118,11 @@ class TransformersEmbeddingAdapter:
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
             
             with torch.no_grad():
-                outputs = self.model(**inputs)
+                outputs = self.model(**inputs, output_hidden_states=True)
                 
-            if hasattr(outputs, "last_hidden_state"):
+            if hasattr(outputs, "hidden_states") and outputs.hidden_states is not None:
+                return outputs.hidden_states[-1][:, -1, :].clone().cpu()
+            elif hasattr(outputs, "last_hidden_state"):
                 return outputs.last_hidden_state[:, -1, :].clone().cpu()
             elif hasattr(outputs, "pooler_output") and outputs.pooler_output is not None:
                 return outputs.pooler_output.clone().cpu()

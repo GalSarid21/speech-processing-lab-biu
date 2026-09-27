@@ -1,5 +1,5 @@
 rag_indexer:
-  model_id: "ATH-MaaS/Ovis-Omni-Embedding-3B"
+  model_id: "LCO-Embedding/LCO-Embedding-Omni-7B"
   dataset:
     id: "BoJack/MMAR"
     split: "test"

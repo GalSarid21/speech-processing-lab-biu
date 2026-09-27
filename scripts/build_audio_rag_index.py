@@ -8,7 +8,7 @@ from loguru import logger
 from tqdm import tqdm
 from datasets import load_dataset
 
-from speech_processing.models.audio_embeddings import OvisAudioEmbedder
+from speech_processing.models.audio_embeddings import LCOAudioEmbedder
 
 def main():
     parser = argparse.ArgumentParser(description="Build Acoustic RAG Index dynamically via YAML config.")
@@ -25,7 +25,7 @@ def main():
     logger.info(f"Loaded configuration from {args.config}")
 
     logger.info(f"Initializing Audio Embedder ({config['model_id']})...")
-    embedder = OvisAudioEmbedder(model_id=config['model_id'])
+    embedder = LCOAudioEmbedder(model_id=config['model_id'])
 
     # IO Paths
     few_shot_ids_file = config["io"]["candidate_ids_file"]
@@ -97,7 +97,7 @@ def main():
             query_emb = embedder.embed_audio(path)
             
             # Cosine similarity
-            sims = F.cosine_similarity(query_emb, cand_tensor, dim=-1)
+            sims = embedder.compute_similarity(query_emb, cand_tensor).squeeze()
             
             k = min(top_k, len(cand_ids_list))
             top_scores, top_indices = torch.topk(sims, k)
