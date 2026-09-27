@@ -1,6 +1,7 @@
 import pandas as pd
 from datasets import Audio, load_dataset
 from loguru import logger
+from speech_processing.utils.consts import COT_START_TAG, COT_END_TAG, ANSWER_START_TAG, ANSWER_END_TAG
 
 from speech_processing.config.core import DatasetConfig
 from speech_processing.data.dtos import AudioRequest,FewShotTurn, TextRequest, BaseRequest
@@ -65,7 +66,7 @@ def load_icbhi_requests(config: DatasetConfig, is_text_only: bool = False, syste
             req = AudioRequest(
                 instruction=row["instruction"],
                 system_prompt=system_prompt,
-                assistant_prefill="<analysis>\n" if "<analysis>" in str(row["instruction"]) else None, 
+                assistant_prefill=f"{COT_START_TAG}\n" if COT_START_TAG in str(row["instruction"]) else None, 
                 audio_path=row["file"],
                 audio_bytes=audio_bytes
             )
@@ -152,7 +153,7 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
         if is_text_only:
             req = TextRequest(
                 instruction=formatted_instruction,
-                assistant_prefill="<analysis>\n" if "<analysis>" in str(formatted_instruction) else None,
+                assistant_prefill=f"{COT_START_TAG}\n" if COT_START_TAG in str(formatted_instruction) else None,
                 system_prompt=system_prompt,
                 metadata={
                     "question": question,
@@ -164,7 +165,7 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
         else:
             req = AudioRequest(
                 instruction=formatted_instruction,
-                assistant_prefill="<analysis>\n" if "<analysis>" in str(formatted_instruction) else None,
+                assistant_prefill=f"{COT_START_TAG}\n" if COT_START_TAG in str(formatted_instruction) else None,
                 system_prompt=system_prompt,
                 audio_path=audio_path,
                 metadata={
@@ -239,7 +240,7 @@ def get_mmar_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_only
         assistant_text = answer
         if "cot" in experiment_meta.experiment_name:
             reasoning = fake_cots.get(item_id, f"The correct choice is {answer}.")
-            assistant_text = f"<analysis>\n{reasoning}\n</analysis>\n<answer>\n{answer}\n</answer>"
+            assistant_text = f"{COT_START_TAG}\n{reasoning}\n{COT_END_TAG}\n{ANSWER_START_TAG}\n{answer}\n{ANSWER_END_TAG}"
 
         is_few_shot_text_only = "few_shot_text_only" in experiment_meta.experiment_name
             
@@ -273,7 +274,7 @@ def get_icbhi_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_onl
             
             user_text = row["instruction"]
             fake_reasoning = f"The audio presents acoustic signatures indicative of {row['label']}."
-            assistant_text = f"<analysis>\n{fake_reasoning}\n</analysis>\n<answer>\n{row['label']}\n</answer>"
+            assistant_text = f"{COT_START_TAG}\n{fake_reasoning}\n{COT_END_TAG}\n{ANSWER_START_TAG}\n{row['label']}\n{ANSWER_END_TAG}"
             
             turns.append(FewShotTurn(
                 audio_path=row["file"],
@@ -337,7 +338,7 @@ def get_mmar_few_shot_turns_pool(config: DatasetConfig, experiment_meta, is_text
         assistant_text = answer
         if "cot" in experiment_meta.experiment_name.lower():
             reasoning = fake_cots.get(item_id, f"The correct choice is {answer}.")
-            assistant_text = f"<analysis>\n{reasoning}\n</analysis>\n<answer>\n{answer}\n</answer>"
+            assistant_text = f"{COT_START_TAG}\n{reasoning}\n{COT_END_TAG}\n{ANSWER_START_TAG}\n{answer}\n{ANSWER_END_TAG}"
 
         is_few_shot_text_only = "few_shot_text_only" in experiment_meta.experiment_name
             

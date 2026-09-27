@@ -76,3 +76,53 @@ class TransformersAdapter(BaseGenerationAdapter):
             torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
         return all_outputs
+
+class TransformersEmbeddingAdapter:
+    def __init__(self, model_id: str):
+        import torch
+        from transformers import AutoProcessor, AutoModel
+        from loguru import logger
+        from speech_processing.utils.consts import MODEL_DEVICE_DTYPE_MAPPING
+        
+        if torch.cuda.is_available():
+            self.device = "cuda"
+        elif torch.backends.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
+            
+        torch_dtype = MODEL_DEVICE_DTYPE_MAPPING.get(self.device, torch.float32)
+            
+        logger.info(f"Loading Embedding Model {model_id} onto {self.device} via transformers...")
+        self.processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+        self.model = AutoModel.from_pretrained(
+            model_id, 
+            trust_remote_code=True,
+            torch_dtype=torch_dtype,
+            device_map=self.device
+        )
+        self.model.eval()
+
+    def embed_audio(self, audio_array) -> Any:
+        import torch
+        from loguru import logger
+        
+        try:
+            inputs = self.processor(audios=[audio_array], return_tensors="pt")
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                
+            if hasattr(outputs, "last_hidden_state"):
+                return outputs.last_hidden_state[:, -1, :].clone().cpu()
+            elif hasattr(outputs, "pooler_output") and outputs.pooler_output is not None:
+                return outputs.pooler_output.clone().cpu()
+            elif isinstance(outputs, tuple):
+                return outputs[0][:, -1, :].clone().cpu()
+            else:
+                logger.error("Could not parse output embedding format from model.")
+                raise ValueError("Unexpected model output format.")
+        except Exception as e:
+            logger.error(f"Error generating embedding: {e}")
+            raise

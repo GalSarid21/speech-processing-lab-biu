@@ -2,6 +2,7 @@ import json
 import os
 from loguru import logger
 
+from speech_processing.utils.consts import DEFAULT_SAMPLING_RATE, COT_START_TAG, COT_END_TAG, ANSWER_START_TAG, ANSWER_END_TAG
 from speech_processing.config.core import (
     AppConfig, 
     DatasetConfig, 
@@ -72,7 +73,7 @@ def create_voxtral_config(max_num_seqs: int = 256, max_new_tokens: int = 256, gp
         gpu_memory_utilization=gpu_pct,
         temperature=0.5,
         top_p=0.5,
-        target_sr=16000,
+        target_sr=DEFAULT_SAMPLING_RATE,
     )
 
 def create_qwen_audio_config(max_num_seqs: int = 256, max_new_tokens: int = 256, gpu_pct: float = 0.95) -> AudioModelConfig:
@@ -85,7 +86,7 @@ def create_qwen_audio_config(max_num_seqs: int = 256, max_new_tokens: int = 256,
         gpu_memory_utilization=gpu_pct,
         temperature=0.5,
         top_p=0.5,
-        target_sr=16000,
+        target_sr=DEFAULT_SAMPLING_RATE,
     )
 
 def create_judge_config() -> JudgeConfig:

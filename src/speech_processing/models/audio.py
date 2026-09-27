@@ -3,6 +3,7 @@ from urllib.request import urlopen
 
 import librosa
 from loguru import logger
+from speech_processing.utils.consts import COT_START_TAG, DEFAULT_SAMPLING_RATE
 
 from speech_processing.adapters.transformers import TransformersAdapter
 from speech_processing.config.core import AudioModelConfig, GenerationParams
@@ -126,8 +127,8 @@ class QwenAudioEngine(BaseAudioModel):
                     
                     conv.append({"role": "user", "content": content})
                     base_text = self.adapter.processor.apply_chat_template(conv, add_generation_prompt=True, tokenize=False)
-                    if "<analysis>" in inst:
-                        base_text += "<analysis>\n"
+                    if COT_START_TAG in inst:
+                        base_text += f"{COT_START_TAG}\n"
                     texts.append(base_text)
 
                 logger.info(f"Processing audio batch of size {len(valid_reqs)} (Turn {step+1}/{num_steps})...")
@@ -141,8 +142,8 @@ class QwenAudioEngine(BaseAudioModel):
                         
                         # Re-inject the prefilled tag so the output is well-formed
                         item_inst_check = valid_reqs[idx].instruction[step] if isinstance(valid_reqs[idx].instruction, list) else valid_reqs[idx].instruction
-                        if "<analysis>" in item_inst_check:
-                            gen_text = "<analysis>\n" + gen_text
+                        if COT_START_TAG in item_inst_check:
+                            gen_text = f"{COT_START_TAG}\n" + gen_text
                             
                         batch_conversations[idx].append({"role": "assistant", "content": gen_text})
                         if num_steps > 1:
@@ -194,6 +195,7 @@ class VoxtralAudioEngine(BaseAudioModel):
     def batch_infer(self, requests: list[AudioRequest]) -> list[AudioResponse]:
         import os
         from loguru import logger
+from speech_processing.utils.consts import COT_START_TAG, DEFAULT_SAMPLING_RATE
         
         if not requests:
             return []
