@@ -17,16 +17,8 @@ class SentenceTransformersEmbeddingAdapter:
         
         logger.info(f"Loading SentenceTransformers Embedding Model {model_id} onto {self.device}...")
         
-        # We explicitly don't use flash_attention_2 by default to keep it stable on mac/colab
-        self.model = SentenceTransformer(
-            model_id,
-            model_kwargs={
-                "torch_dtype": torch_dtype,
-                "trust_remote_code": True,
-                "attn_implementation": "flash_attention_2"
-            },
-            device=self.device
-        )
+        model_kwargs={"torch_dtype": torch_dtype, "trust_remote_code": True}
+        self.model = SentenceTransformer(model_id, model_kwargs=model_kwargs, device=self.device)
         self.model.eval()
         
     def embed_audio(self, audio_source: str | dict | list[str] | list[dict], batch_size: int | None = None) -> torch.Tensor:
