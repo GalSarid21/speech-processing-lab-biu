@@ -45,6 +45,7 @@ class ExperimentMeta(BaseModel):
     max_new_tokens: int
     batch_size: int
     system_prompt: str | None = None
+    rag_mapping_file: str | None = None
 
 
 class AppConfig(BaseModel):

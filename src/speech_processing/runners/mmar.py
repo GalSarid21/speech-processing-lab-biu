@@ -96,6 +96,13 @@ class ExperimentVersion(Enum):
         max_new_tokens=256,
         batch_size=8
     )
+    v14 = ExperimentMeta(
+        experiment_name="rag_few_shots",
+        prompt="Here are some similar examples of audio, questions, and answers. Listen to them, then evaluate the final test audio and answer the multiple-choice question. Respond with the exact text of the correct choice.",
+        max_new_tokens=1024,
+        batch_size=8,
+        rag_mapping_file="data/mmar_rag_mapping.json"
+    )
 
     @classmethod
     def get_version(cls, version_str: str) -> 'ExperimentVersion':
