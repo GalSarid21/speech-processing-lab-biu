@@ -28,10 +28,10 @@ def mock_judge_config():
 
 def test_judge_batch_evaluate_success(mocker, mock_judge_config):
     mocker.patch("speech_processing.models.judge.VLLMAdapter")
-    mock_vllm_adapter_class = mocker.patch("speech_processing.models.judge.VLLMAdapter")
+    mock_vllm_class = mocker.patch("speech_processing.models.judge.VLLMAdapter")
     
     # Setup mock LLM and Adapter
-    mock_adapter = mock_vllm_adapter_class.return_value
+    mock_adapter = mock_vllm_class.return_value
     
     # Simulate a perfect JSON response from vLLM
     valid_json = json.dumps({
@@ -61,8 +61,8 @@ def test_judge_batch_evaluate_success(mocker, mock_judge_config):
 
 def test_judge_batch_evaluate_json_fallback(mocker, mock_judge_config):
     mocker.patch("speech_processing.models.judge.VLLMAdapter")
-    mock_vllm_adapter_class = mocker.patch("speech_processing.models.judge.VLLMAdapter")
-    mock_adapter = mock_vllm_adapter_class.return_value
+    mock_vllm_class = mocker.patch("speech_processing.models.judge.VLLMAdapter")
+    mock_adapter = mock_vllm_class.return_value
     
     # Simulate garbage string from vLLM (e.g. if guided_json fails or model hallucinates text)
     mock_adapter.generate_batch.return_value = ["This is not JSON!"]

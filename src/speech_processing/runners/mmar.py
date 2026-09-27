@@ -120,16 +120,37 @@ def run_mmar(args):
     logger.info("--- [PHASE 1] DATA LOADING & PREPARATION ---")
     dataset_items = load_mmar_requests(config.dataset, experiment_meta=experiment_meta, is_text_only=is_text_only)
     
+    # RAG Integration
+    rag_mapping = None
+    if getattr(experiment_meta, "rag_mapping_file", None):
+        import json
+        import os
+        if os.path.exists(experiment_meta.rag_mapping_file):
+            with open(experiment_meta.rag_mapping_file, "r") as f:
+                rag_mapping = json.load(f)
+        else:
+            logger.warning(f"RAG mapping file {experiment_meta.rag_mapping_file} not found. Falling back to default few-shot.")
+
     few_shot_turns = []
-    if "few_shot" in experiment_meta.experiment_name:
+    few_shot_pool = {}
+    if rag_mapping:
+        from speech_processing.data.dataset import get_mmar_few_shot_turns_pool
+        few_shot_pool = get_mmar_few_shot_turns_pool(config.dataset, experiment_meta, is_text_only=is_text_only)
+    elif "few_shot" in experiment_meta.experiment_name:
         from speech_processing.data.dataset import get_mmar_few_shot_turns
         few_shot_turns = get_mmar_few_shot_turns(config.dataset, experiment_meta, is_text_only=is_text_only, num_shots=3)
 
     requests = []
     ground_truths = []
     for req, gt in dataset_items:
-        if few_shot_turns:
+        if rag_mapping and req.metadata and "item_id" in req.metadata:
+            item_id = req.metadata["item_id"]
+            if item_id in rag_mapping:
+                mapped_ids = rag_mapping[item_id]
+                req.few_shot_turns = [few_shot_pool[fid] for fid in mapped_ids if fid in few_shot_pool]
+        elif few_shot_turns:
             req.few_shot_turns = few_shot_turns
+            
         requests.append(req)
         ground_truths.append(gt)
 

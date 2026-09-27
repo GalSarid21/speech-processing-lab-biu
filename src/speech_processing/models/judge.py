@@ -4,7 +4,7 @@ from collections.abc import Callable
 from loguru import logger
 
 
-from speech_processing.adapters.vllm_adapter import VLLMAdapter
+from speech_processing.adapters.vllm import VLLMAdapter
 from speech_processing.config.core import JudgeConfig, GenerationParams
 from speech_processing.data.dtos import EvaluationResult, JudgeRequest, JudgeResponse
 from speech_processing.models.base import BaseJudgeModel

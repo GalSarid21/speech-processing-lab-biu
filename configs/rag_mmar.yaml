@@ -1,0 +1,13 @@
+rag_indexer:
+  model_id: "ATH-MaaS/Ovis-Omni-Embedding-3B"
+  dataset:
+    id: "BoJack/MMAR"
+    split: "test"
+    audio_path_column: "audio_path"
+    id_column: "id"
+  io:
+    candidate_ids_file: "data/mmar_en_speech_few_shot_ids.txt"
+    query_ids_file: "data/mmar_en_speech_test_ids.txt"
+    output_mapping_file: "data/mmar_rag_mapping.json"
+  parameters:
+    top_k: 3

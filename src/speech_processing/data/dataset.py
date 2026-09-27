@@ -157,7 +157,8 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
                 metadata={
                     "question": question,
                     "choices": choices,
-                    "transcript": transcript
+                    "transcript": transcript,
+                    "item_id": item_id
                 }
             )
         else:
@@ -169,7 +170,8 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
                 metadata={
                     "question": question,
                     "choices": choices,
-                    "transcript": transcript
+                    "transcript": transcript,
+                    "item_id": item_id
                 }
             )
         results.append((req, answer))
@@ -282,3 +284,68 @@ def get_icbhi_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_onl
             
     logger.info(f"Successfully prepared {len(turns)} authentic ICBHI few-shot examples.")
     return turns
+
+def get_mmar_few_shot_turns_pool(config: DatasetConfig, experiment_meta, is_text_only: bool = False) -> dict[str, FewShotTurn]:
+    """Loads all authentic audio few-shot examples into a pool for RAG."""
+    import os
+    import json
+    
+    if not config.few_shot_ids_file or not os.path.exists(config.few_shot_ids_file):
+        logger.warning("No few-shot IDs file found.")
+        return {}
+        
+    with open(config.few_shot_ids_file, "r") as f:
+        few_shot_ids = [line.strip() for line in f if line.strip()]
+        
+    ds = load_dataset(config.dataset_id, split=config.split, streaming=False)
+    df = ds.to_pandas()
+    
+    sample_df = df[df['id'].isin(few_shot_ids)]
+    
+    transcripts = {}
+    if config.transcripts_file and os.path.exists(config.transcripts_file):
+        with open(config.transcripts_file, "r") as f:
+            transcripts = json.load(f)
+            
+    pool = {}
+    for _, row in sample_df.iterrows():
+        item_id = row['id']
+        question = row['question']
+        choices = row['choices']
+        if isinstance(choices, str):
+            import ast
+            try: choices = ast.literal_eval(choices)
+            except (SyntaxError, ValueError): pass
+        
+        answer = row['answer']
+        audio_rel_path = row['audio_path']
+        audio_base = config.audio_base_dir or ""
+        audio_path = os.path.join(audio_base, audio_rel_path.lstrip('./'))
+        transcript = transcripts.get(item_id, "[NO TRANSCRIPT]")
+        
+        if "transcript" in experiment_meta.experiment_name or "text_only" in experiment_meta.experiment_name:
+            user_text = f"Transcript: {transcript}\n\nQuestion: {question}\nChoices: {choices}"
+        else:
+            user_text = f"Question: {question}\nChoices: {choices}"
+
+        fake_cots = {
+            "KodXqxwrFiE_00-00-00_00-00-19": "Logically, I hear a clear instructional voice pointing out a specific type of fruit. Acoustically, the speech is direct, well-articulated, and recorded in a quiet environment. Based on this, the speaker specifically points out blueberries.",
+            "BV1Gt42157zM_00-00-00_00-00-17": "Logically, a girl speaks first, followed by a boy imitating her pronunciation. Acoustically, the boy artificially alters his pitch and vowel sounds to perform a mock accent. Based on this, the boy is imitating a British accent.",
+            "Scaei6tdU6k_00-00-00_00-00-10": "Logically, a woman is speaking, but her words contrast with her delivery. Acoustically, her tone is highly elevated, laughing, and playful, indicating she is not being serious. Based on this, she was being playful and expressing surprise."
+        }
+
+        assistant_text = answer
+        if "cot" in experiment_meta.experiment_name.lower():
+            reasoning = fake_cots.get(item_id, f"The correct choice is {answer}.")
+            assistant_text = f"<analysis>\n{reasoning}\n</analysis>\n<answer>\n{answer}\n</answer>"
+
+        is_few_shot_text_only = "few_shot_text_only" in experiment_meta.experiment_name
+            
+        pool[item_id] = FewShotTurn(
+            audio_path=None if is_few_shot_text_only else audio_path,
+            audio_bytes=None,
+            user_text=user_text,
+            assistant_text=assistant_text
+        )
+        
+    return pool

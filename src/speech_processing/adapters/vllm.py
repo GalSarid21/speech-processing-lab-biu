@@ -50,14 +50,24 @@ class VLLMAdapter(BaseGenerationAdapter):
             has_prefill = any(p[-1]["role"] == "assistant" for p in prompts)
             try:
                 if has_prefill:
-                    # New vLLM API supports continue_final_message
-                    outputs: list[Any] = self.llm.chat(messages=prompts, sampling_params=vllm_params, continue_final_message=True)
+                    # New vLLM API supports continue_final_message. We MUST pass add_generation_prompt=False 
+                    # directly at the top level because vLLM has it as a top-level arg with default=True.
+                    outputs: list[Any] = self.llm.chat(
+                        messages=prompts, 
+                        sampling_params=vllm_params, 
+                        continue_final_message=True,
+                        add_generation_prompt=False
+                    )
                 else:
                     outputs: list[Any] = self.llm.chat(messages=prompts, sampling_params=vllm_params)
             except TypeError:
-                # Older vLLM APIs require modifying chat_template_kwargs
+                # Older vLLM APIs fallback (if continue_final_message is not a valid arg)
                 if has_prefill:
-                    outputs: list[Any] = self.llm.chat(messages=prompts, sampling_params=vllm_params, chat_template_kwargs={"add_generation_prompt": False})
+                    outputs: list[Any] = self.llm.chat(
+                        messages=prompts, 
+                        sampling_params=vllm_params, 
+                        add_generation_prompt=False
+                    )
                 else:
                     outputs: list[Any] = self.llm.chat(messages=prompts, sampling_params=vllm_params)
         else:

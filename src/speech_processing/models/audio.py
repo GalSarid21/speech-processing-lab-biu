@@ -4,7 +4,7 @@ from urllib.request import urlopen
 import librosa
 from loguru import logger
 
-from speech_processing.adapters.transformers_adapter import TransformersAdapter
+from speech_processing.adapters.transformers import TransformersAdapter
 from speech_processing.config.core import AudioModelConfig, GenerationParams
 from speech_processing.data.dtos import AudioRequest, AudioResponse
 from speech_processing.models.base import BaseAudioModel
@@ -172,7 +172,7 @@ class QwenAudioEngine(BaseAudioModel):
 class VoxtralAudioEngine(BaseAudioModel):
     def __init__(self, config: AudioModelConfig) -> None:
         self.config = config
-        from speech_processing.adapters.vllm_adapter import VLLMAdapter
+        from speech_processing.adapters.vllm import VLLMAdapter
         import os
 
         # Pass kwargs directly to VLLMAdapter
