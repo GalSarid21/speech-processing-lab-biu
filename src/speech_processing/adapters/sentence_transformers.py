@@ -28,7 +28,7 @@ class SentenceTransformersEmbeddingAdapter:
         )
         self.model.eval()
         
-    def embed_audio(self, audio_source, batch_size: int = 16) -> torch.Tensor:
+    def embed_audio(self, audio_source: str | dict | list[str] | list[dict], batch_size: int = 16) -> torch.Tensor:
         """
         Takes a single audio path/dict OR a list of audio paths/dicts and returns the embedding(s).
         """
