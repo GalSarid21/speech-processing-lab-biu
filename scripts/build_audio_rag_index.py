@@ -56,11 +56,13 @@ def main():
         if row.empty:
             return None
             
+        audio_base_dir = config["dataset"].get("audio_base_dir", "")
+        
         # Standardize path extraction
         if 'file' in row.columns and isinstance(row.iloc[0]['file'], str):
-            return row.iloc[0]['file']
+            return os.path.join(audio_base_dir, str(row.iloc[0]['file']).lstrip('./'))
         if path_col in row.columns:
-            return str(row.iloc[0][path_col]).lstrip('./')
+            return os.path.join(audio_base_dir, str(row.iloc[0][path_col]).lstrip('./'))
         return None
 
     # Phase 1: Embed Candidates

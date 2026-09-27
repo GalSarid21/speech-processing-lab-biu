@@ -4,6 +4,7 @@ rag_indexer:
     id: "BoJack/MMAR"
     split: "test"
     audio_path_column: "audio_path"
+    audio_base_dir: "data/MMAR"
     id_column: "id"
   io:
     candidate_ids_file: "data/mmar_en_speech_few_shot_ids.txt"
