@@ -1,9 +1,15 @@
+import numpy as np
 import pytest
 from speech_processing.config.core import ExperimentMeta
 from speech_processing.data.dataset import load_mmar_requests
 from speech_processing.config.core import DatasetConfig
 import pandas as pd
 from pydantic import BaseModel
+from speech_processing.data.dtos.requests import TextRequest
+from speech_processing.data.dtos.responses import MMAREvaluationResult
+from speech_processing.data.dtos.responses import TextResponse
+from speech_processing.models.text import GemmaTextModel
+import numpy
 
 def test_b1_explicit_flags():
     # Ensuring no substring logic needed
@@ -20,7 +26,6 @@ def test_b1_explicit_flags():
 
 def test_b5_choices_numpy():
     # Numpy choices should be converted
-    import numpy as np
     row = pd.Series({
         'id': 'test1',
         'question': 'What?',
@@ -43,14 +48,10 @@ def test_b5_choices_numpy():
     assert ans == "B"
 
 def test_b2_sample_id():
-    from speech_processing.data.dtos.requests import TextRequest
-    from speech_processing.models.text import GemmaTextModel
-    from speech_processing.data.dtos.responses import TextResponse
     req = TextRequest(instruction="test", metadata={"item_id": "item123"})
     assert req.metadata["item_id"] == "item123"
 
 def test_b7_judge_schema():
-    from speech_processing.data.dtos.responses import MMAREvaluationResult
     eval_res = MMAREvaluationResult(reasoning="Because.", is_correct=True, extracted_choice="A")
     assert eval_res.extracted_choice == "A"
     assert eval_res.is_correct is True

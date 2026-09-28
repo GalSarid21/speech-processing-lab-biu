@@ -32,7 +32,7 @@ class AudioModelConfig(BaseModelConfig):
     # Flags passed through from ExperimentMeta
     chunked_audio: bool = False
     two_pass_localization: bool = False
-    contrastive_alpha: float = 0.0
+    contrastive_alpha: float | None = None
 
 
 class DatasetConfig(BaseModel):
@@ -67,7 +67,7 @@ class ExperimentMeta(BaseModel):
     two_pass_localization: bool = False
     
     # T3 Flags
-    contrastive_alpha: float = 0.0
+    contrastive_alpha: float | None = None
     
     # T4 Flags
     num_shuffled_variants: int = 1

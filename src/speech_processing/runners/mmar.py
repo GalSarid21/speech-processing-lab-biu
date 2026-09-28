@@ -6,6 +6,7 @@ from enum import Enum
 from loguru import logger
 
 from speech_processing.config.core import ExperimentMeta
+from speech_processing.config.factories import create_mmar_config
 from speech_processing.runners.base import parse_args
 from speech_processing.data.dataset import load_mmar_requests
 from speech_processing.prompts.templates.judge.qwen import build_mmar_judge_conversation
@@ -16,36 +17,13 @@ from speech_processing.pipelines.inference import InferencePipeline
 from speech_processing.pipelines.judge import JudgePipeline
 from speech_processing.pipelines.base import release_vram
 from speech_processing.evaluation.stability import calculate_stability
+from speech_processing.data.dataset import get_mmar_few_shot_turns
+from speech_processing.data.dataset import get_mmar_few_shot_turns_pool
+from speech_processing.data.dtos.responses import MMAREvaluationResult
 
 
 class DeprecatedExperimentError(Exception):
     pass
-
-def deprecated(reason: str):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            meta = func(*args, **kwargs)
-            meta.deprecated = True
-            meta.deprecation_reason = reason
-            return meta
-        return wrapper
-    return decorator
-
-@deprecated("RAG CoT uses placeholder rationales")
-def _deprecated_rag_few_shots_cot():
-    return ExperimentMeta(
-        experiment_name="rag_few_shots_cot",
-        prompt="Listen to the audio and answer the multiple-choice question. Respond with the exact text of the correct choice.",
-        max_new_tokens=256, batch_size=8, few_shot_mode="rag", use_cot=True
-    )
-
-@deprecated("RAG CoT uses placeholder rationales")
-def _deprecated_rag_few_shots_transcript_cot():
-    return ExperimentMeta(
-        experiment_name="rag_few_shots_transcript_cot",
-        prompt="Listen to the audio and answer the multiple-choice question. Respond with the exact text of the correct choice.",
-        max_new_tokens=256, batch_size=8, use_transcript=True, few_shot_mode="rag", few_shot_include_transcript=True, use_cot=True
-    )
 
 class ExperimentVersion(Enum):
     v1 = ExperimentMeta(
@@ -141,12 +119,6 @@ Format your response exactly as follows:
     )
     
     # ---------------------------------------------------------
-    # Deprecated RAG CoT tests (Bug B3)
-    # ---------------------------------------------------------
-    v16 = _deprecated_rag_few_shots_cot()
-    v17 = _deprecated_rag_few_shots_transcript_cot()
-
-    # ---------------------------------------------------------
     # T1 - Acoustic Injection
     # ---------------------------------------------------------
     v18 = ExperimentMeta(
@@ -225,11 +197,7 @@ Format your response exactly as follows:
     @classmethod
     def get_version(cls, version_str: str) -> 'ExperimentVersion':
         try:
-            member = cls[version_str.lower()]
-            if getattr(member.value, 'deprecated', False):
-                reason = getattr(member.value, 'deprecation_reason', 'Unknown reason')
-                raise ValueError(f"Experiment '{version_str}' is deprecated: {reason}")
-            return member
+            return cls[version_str.lower()]
         except KeyError:
             raise ValueError(f"Unknown experiment version: {version_str}. Available versions: {[e.name for e in cls]}")
 
@@ -251,8 +219,6 @@ def run_mmar(args):
     # RAG Integration
     rag_mapping = None
     if getattr(experiment_meta, "rag_mapping_file", None):
-        import json
-        import os
         if os.path.exists(experiment_meta.rag_mapping_file):
             with open(experiment_meta.rag_mapping_file, "r") as f:
                 rag_mapping = json.load(f)
@@ -262,10 +228,8 @@ def run_mmar(args):
     few_shot_turns = []
     few_shot_pool = {}
     if rag_mapping:
-        from speech_processing.data.dataset import get_mmar_few_shot_turns_pool
         few_shot_pool = get_mmar_few_shot_turns_pool(config.dataset, experiment_meta, is_text_only=is_text_only)
     elif "few_shot" in experiment_meta.experiment_name:
-        from speech_processing.data.dataset import get_mmar_few_shot_turns
         few_shot_turns = get_mmar_few_shot_turns(config.dataset, experiment_meta, is_text_only=is_text_only, num_shots=3)
 
     requests = []
@@ -325,7 +289,6 @@ def run_mmar(args):
     time.sleep(30)
 
     logger.info("--- [PHASE 4] INITIALIZING JUDGE ENGINE ---")
-    from speech_processing.data.dtos.responses import MMAREvaluationResult
     assert config.judge is not None, "Judge config is missing"
     judge_engine = QwenJudge(config.judge, template_func=build_mmar_judge_conversation, schema_class=MMAREvaluationResult)
     judge_pipeline = JudgePipeline(judge_engine)

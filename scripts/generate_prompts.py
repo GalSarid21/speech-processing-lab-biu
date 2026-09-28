@@ -3,15 +3,17 @@ from pathlib import Path
 from loguru import logger
 
 from speech_processing.data.dtos import JudgeRequest
+from speech_processing.prompts.templates.judge.qwen import build_icbhi_judge_conversation as build_judge_conversation
+from speech_processing.prompts.templates.judge.qwen import build_mmar_judge_conversation as build_judge_conversation
+from speech_processing.runners.icbhi import ExperimentVersion
+from speech_processing.runners.mmar import ExperimentVersion
 
 def export_audio_prompts(dataset: str, output_dir: Path):
     """Exports all audio experiment prompts from the ExperimentVersion Enum."""
     logger.info(f"Exporting audio experiment prompts for {dataset}...")
     
     if dataset == "icbhi":
-        from speech_processing.runners.icbhi import ExperimentVersion
     elif dataset == "mmar":
-        from speech_processing.runners.mmar import ExperimentVersion
     else:
         raise ValueError(f"Unknown dataset: {dataset}")
 
@@ -39,9 +41,7 @@ def export_judge_prompts(dataset: str, output_dir: Path):
     logger.info(f"Exporting judge prompt for {dataset}...")
     
     if dataset == "icbhi":
-        from speech_processing.prompts.templates.judge.qwen import build_icbhi_judge_conversation as build_judge_conversation
     elif dataset == "mmar":
-        from speech_processing.prompts.templates.judge.qwen import build_mmar_judge_conversation as build_judge_conversation
     else:
         raise ValueError(f"Unknown dataset: {dataset}")
 

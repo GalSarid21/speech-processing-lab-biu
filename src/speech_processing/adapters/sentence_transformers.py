@@ -1,8 +1,11 @@
 import torch
 class SentenceTransformersEmbeddingAdapter:
     def __init__(self, model_id: str):
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         import torch
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         from loguru import logger
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         from sentence_transformers import SentenceTransformer
         from speech_processing.utils.consts import MODEL_DEVICE_DTYPE_MAPPING
         
@@ -25,6 +28,7 @@ class SentenceTransformersEmbeddingAdapter:
         """
         Takes a single audio path/dict OR a list of audio paths/dicts and returns the embedding(s).
         """
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         import torch
         
         if isinstance(audio_source, list):

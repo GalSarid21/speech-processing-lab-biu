@@ -5,6 +5,7 @@ from speech_processing.config.core import TextModelConfig
 from speech_processing.data.dtos.requests import TextRequest
 from speech_processing.data.dtos.responses import TextResponse
 from speech_processing.models.base import BaseTextModel
+import re
 
 
 class GemmaTextModel(BaseTextModel):
@@ -68,7 +69,6 @@ class GemmaTextModel(BaseTextModel):
         responses = []
         for req, output_text in zip(requests, generated_texts):
             # Strip any thinking channel before scoring
-            import re
             output_text = re.sub(r'<\|?[tT]hink\|?>.*?</\|?[tT]hink\|?>', '', output_text, flags=re.DOTALL).strip()
             
             sample_id = "batch_text"

@@ -79,7 +79,6 @@ def test_dataset_no_padding_needed(mocker, mock_dataset_config):
         assert_that(label).is_in("COPD", "Healthy")
 
 def test_load_mmar_requests(mocker, mock_dataset_config):
-    from speech_processing.data.dataset import load_mmar_requests
     
     mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
     mock_ds = mocker.MagicMock()
@@ -114,7 +113,7 @@ def test_load_mmar_requests(mocker, mock_dataset_config):
     
     # Check ID1 (Has transcript)
     req1, gt1 = results[0]
-    assert_that(gt1).is_equal_to("Dog")
+    assert_that(gt1).is_equal_to("A")
     assert isinstance(req1, __import__('speech_processing.data.dtos.requests', fromlist=['AudioRequest']).AudioRequest)
     assert_that(req1.audio_path).is_equal_to("data/MMAR/audio/id1.wav")
     assert_that(req1.metadata["question"]).is_equal_to("What sound is this?")
@@ -123,7 +122,7 @@ def test_load_mmar_requests(mocker, mock_dataset_config):
     
     # Check ID3 (No transcript)
     req3, gt3 = results[1]
-    assert_that(gt3).is_equal_to("Yes")
+    assert_that(gt3).is_equal_to("A")
     assert_that(req3.metadata["transcript"]).is_equal_to("[NO TRANSCRIPT]")
     assert_that(req3.metadata["choices"]).is_equal_to(["Yes", "No"])
 import sys
@@ -135,6 +134,7 @@ import pandas as pd
 from speech_processing.config.core import DatasetConfig
 from speech_processing.data.dataset import load_mmar_requests
 from speech_processing.runners.mmar import ExperimentVersion
+from speech_processing.data.dataset import load_mmar_requests
 
 def test_mmar_dynamic_prompt_injection(mocker):
     # We want to test the string formatting logic inside load_mmar_requests
@@ -173,7 +173,8 @@ def test_mmar_dynamic_prompt_injection(mocker):
     
     assert_that(req_v1.instruction).does_not_contain("Hello world")
     assert_that(req_v1.instruction).contains("What is this?")
-    assert_that(req_v1.instruction).contains("['A', 'B']")
+    assert_that(req_v1.instruction).contains("A. A")
+    assert_that(req_v1.instruction).contains("B. B")
     
     # Run with V3 (Transcript Augmented)
     meta_v3 = ExperimentVersion.get_version("v3").value
@@ -227,7 +228,6 @@ def test_dataset_num_samples_larger_than_dataset(mocker, mock_dataset_config):
 
 
 def test_mmar_num_samples_none_and_truncation(mocker, mock_dataset_config):
-    from speech_processing.data.dataset import load_mmar_requests
     mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
     mock_ds = mocker.MagicMock()
     df = pd.DataFrame({

@@ -1,3 +1,5 @@
+import os
+import json
 import pandas as pd
 from datasets import Audio, load_dataset
 from loguru import logger
@@ -5,6 +7,7 @@ from speech_processing.utils.consts import COT_START_TAG, COT_END_TAG, ANSWER_ST
 
 from speech_processing.config.core import DatasetConfig
 from speech_processing.data.dtos import AudioRequest,FewShotTurn, TextRequest, BaseRequest
+import ast
 
 def load_icbhi_requests(config: DatasetConfig, is_text_only: bool = False, system_prompt: str | None = None) -> list[tuple[BaseRequest, str]]:
     """Loads the ICBHI dataset, filters it, and returns a list of (Request, ground_truth)."""
@@ -77,7 +80,7 @@ def load_icbhi_requests(config: DatasetConfig, is_text_only: bool = False, syste
 
 def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only: bool = False) -> list[tuple[BaseRequest, str]]:
     """Loads the MMAR dataset test split (from text files and HuggingFace)."""
-    import os
+
     logger.info(f"Loading {config.dataset_id} dataset from HuggingFace...")
     ds = load_dataset(config.dataset_id, split=config.split, streaming=False)
     df = ds.to_pandas()
@@ -111,7 +114,6 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
         question = row['question']
         choices = row['choices']
         if isinstance(choices, str):
-            import ast
             try:
                 choices = ast.literal_eval(choices)
             except (SyntaxError, ValueError):
@@ -195,9 +197,6 @@ def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only
 
 def get_mmar_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_only: bool = False, num_shots: int = 3) -> list[FewShotTurn]:
     """Loads and formats few-shot examples for MMAR experiments."""
-    import os
-    import json
-    import os
     
     if not config.few_shot_ids_file or not os.path.exists(config.few_shot_ids_file):
         logger.warning("No few-shot IDs file found. Cannot load few-shot examples.")
@@ -229,7 +228,6 @@ def get_mmar_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_only
         question = row['question']
         choices = row['choices']
         if isinstance(choices, str):
-            import ast
             try: choices = ast.literal_eval(choices)
             except (SyntaxError, ValueError): pass
         
@@ -308,9 +306,6 @@ def get_icbhi_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_onl
 
 def get_mmar_few_shot_turns_pool(config: DatasetConfig, experiment_meta, is_text_only: bool = False) -> dict[str, FewShotTurn]:
     """Loads all authentic audio few-shot examples into a pool for RAG."""
-    import os
-    import json
-    import os
     
     if not config.few_shot_ids_file or not os.path.exists(config.few_shot_ids_file):
         logger.warning("No few-shot IDs file found.")
@@ -335,7 +330,6 @@ def get_mmar_few_shot_turns_pool(config: DatasetConfig, experiment_meta, is_text
         question = row['question']
         choices = row['choices']
         if isinstance(choices, str):
-            import ast
             try: choices = ast.literal_eval(choices)
             except (SyntaxError, ValueError): pass
         

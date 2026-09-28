@@ -5,11 +5,13 @@ from speech_processing.config.core import GenerationParams
 
 class VLLMAdapter(BaseGenerationAdapter):
     def __init__(self, **kwargs) -> None:
+        # Scoped import because vllm is not available on MacOS and would crash on import
         from vllm import LLM
         self.llm = LLM(**kwargs)
         self.tokenizer = self.llm.get_tokenizer()
 
     def generate_batch(self, prompts: list[Any], sampling_params: GenerationParams) -> list[str]:
+        # Scoped import because vllm is not available on MacOS and would crash on import
         from vllm import SamplingParams
         
         kwargs = {

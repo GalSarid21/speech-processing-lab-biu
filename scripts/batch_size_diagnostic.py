@@ -8,6 +8,7 @@ from speech_processing.models.audio import QwenAudioEngine
 from speech_processing.data.dtos import AudioRequest, FewShotTurn
 import librosa
 import numpy as np
+import librosa
 
 def create_dummy_audio(duration_sec: int, sr: int) -> np.ndarray:
     # Create random noise to simulate audio
@@ -65,7 +66,6 @@ def run_diagnostic(model_id: str, start_batch_size: int = 8, max_audio_duration_
             requests.append(req)
             
         # Mock librosa load inside this context
-        import librosa
         original_load = librosa.load
         librosa.load = lambda path, sr_arg: (create_dummy_audio(max_audio_duration_sec, sr), sr)
         

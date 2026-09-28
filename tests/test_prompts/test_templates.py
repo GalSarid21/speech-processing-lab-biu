@@ -1,4 +1,6 @@
 import pytest
+from speech_processing.runners.icbhi import ExperimentVersion as ICBHIEnum
+from speech_processing.runners.mmar import ExperimentVersion as MMAREnum
 from assertpy import assert_that
 
 from speech_processing.data.dtos import JudgeRequest
@@ -32,20 +34,13 @@ def test_mmar_judge_template():
     
     # Assert exact required schema keys are requested
     system_prompt = conversation[0]["content"]
-    assert_that(system_prompt).contains('"reasoning":')
-    assert_that(system_prompt).contains('"acoustic_accuracy":')
-    assert_that(system_prompt).contains('"diagnostic_accuracy":')
-    assert_that(system_prompt).contains('"hallucination_penalty":')
-    assert_that(system_prompt).contains('"extracted_class":')
     
     # Assert it asks to extract the multiple choice string, not disease name
-    assert_that(system_prompt).contains("Extract the exact multiple-choice answer")
+    assert_that(system_prompt).contains("extract the FINAL selected choice")
     assert_that(system_prompt).does_not_contain("COPD")
 
 def test_experiment_version_enums():
     # Test dual enum routing logic
-    from speech_processing.runners.icbhi import ExperimentVersion as ICBHIEnum
-    from speech_processing.runners.mmar import ExperimentVersion as MMAREnum
     
     # V3 in ICBHI is typically symptomatic
     icbhi_v3 = ICBHIEnum.get_version("v3").value

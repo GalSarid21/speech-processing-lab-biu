@@ -5,8 +5,11 @@ from speech_processing.config.core import GenerationParams
 
 class TransformersAdapter(BaseGenerationAdapter):
     def __init__(self, model_id: str, dtype: str, max_model_len: int):
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         import torch
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         from loguru import logger
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         from transformers import AutoProcessor, Qwen2AudioForConditionalGeneration
         
         logger.info(f"Loading Model from {model_id} via transformers...")
@@ -23,6 +26,7 @@ class TransformersAdapter(BaseGenerationAdapter):
     def generate_batch(
         self, texts: list[str], audios: list[Any], sampling_params: GenerationParams, batch_size: int = 4
     ) -> list[str]:
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         import torch
         
         all_outputs = []
@@ -51,6 +55,7 @@ class TransformersAdapter(BaseGenerationAdapter):
             max_len = getattr(self.model.config, "max_position_embeddings", self.max_model_len)
             
             if seq_len + sampling_params.max_new_tokens > max_len:
+                # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
                 from loguru import logger
                 logger.error(f"CRITICAL: Prompt length ({seq_len} tokens) + max_new_tokens ({sampling_params.max_new_tokens}) exceeds model's max context window ({max_len})! This causes silent trimming or OOM.")
                 raise ValueError(f"Prompt length {seq_len} exceeds max context limit of {max_len}")
@@ -79,8 +84,11 @@ class TransformersAdapter(BaseGenerationAdapter):
 
 class TransformersEmbeddingAdapter:
     def __init__(self, model_id: str):
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         import torch
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         from transformers import AutoProcessor, AutoModelForCausalLM
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         from loguru import logger
         from speech_processing.utils.consts import MODEL_DEVICE_DTYPE_MAPPING
         
@@ -110,7 +118,9 @@ class TransformersEmbeddingAdapter:
         self.model.eval()
 
     def embed_audio(self, audio_array) -> Any:
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         import torch
+        # Scoped import to lazily load heavy ML libraries only when the adapter is instantiated
         from loguru import logger
         
         try:

@@ -53,11 +53,11 @@ def build_mmar_judge_conversation(req: JudgeRequest) -> list[dict[str, str]]:
     
     user_content = (
         f"--- PROMPT ---\n"
-        f"{req.prompt}\n\n"
+        f"{req.instruction}\n\n"
         f"--- GROUND TRUTH ---\n"
         f"{req.ground_truth}\n\n"
         f"--- MODEL ANSWER ---\n"
-        f"{req.model_answer}\n"
+        f"{req.generated_text}\n"
     )
     
     return [

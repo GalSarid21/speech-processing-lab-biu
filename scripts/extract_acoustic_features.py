@@ -23,6 +23,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--audio_dir", type=str, default="data/MMAR/audio")
     parser.add_argument("--output_file", type=str, default="data/mmar_acoustic_features.json")
+    parser.add_argument("--sample_ids_file", type=str, default="data/mmar_en_speech_test_ids.txt")
     args = parser.parse_args()
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -30,13 +31,20 @@ def main():
     print("Loading Pyannote pipeline...")
     diarization_pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
-        use_auth_token=os.environ.get("HF_TOKEN")
+        token=True
     ).to(torch.device(device))
     
     print("Loading Whisper model...")
     whisper_model = whisper.load_model("large-v3", device=device)
     
     audio_files = [f for f in os.listdir(args.audio_dir) if f.endswith(".wav")]
+    
+    if args.sample_ids_file and os.path.exists(args.sample_ids_file):
+        with open(args.sample_ids_file, 'r') as f:
+            valid_ids = {line.strip() for line in f if line.strip()}
+        audio_files = [f for f in audio_files if os.path.splitext(f)[0] in valid_ids]
+        print(f"Filtered down to {len(audio_files)} files using {args.sample_ids_file}")
+
     os.makedirs(os.path.dirname(args.output_file), exist_ok=True)
     
     with open(args.output_file, "w") as f:
@@ -53,7 +61,8 @@ def main():
                 speaker_stats = {}
                 transcript_lines = []
                 
-                for turn, _, speaker in diarization.itertracks(yield_label=True):
+                annotation = getattr(diarization, "speaker_diarization", diarization)
+                for turn, _, speaker in annotation.itertracks(yield_label=True):
                     start = turn.start
                     end = turn.end
                     

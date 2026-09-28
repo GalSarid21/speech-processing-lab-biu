@@ -1,6 +1,8 @@
 import json
 from loguru import logger
 from speech_processing.data.dtos.requests import BaseRequest
+import collections
+import re
 
 class InferencePipeline:
     def __init__(self, engine):
@@ -10,8 +12,6 @@ class InferencePipeline:
         logger.info(f"Running Inference Pipeline on {len(requests)} samples...")
         responses = self.engine.batch_infer(requests)
         
-        import collections
-        import re
         
         # Check if we need to aggregate shuffled variants
         is_shuffled = any(req.metadata and "variant_idx" in req.metadata for req in requests)
@@ -77,8 +77,6 @@ class InferencePipeline:
                     meta.pop("variant_idx", None)
                     meta.pop("original_item_id", None)
                     out_dict["metadata"] = meta
-                f.write(json.dumps(out_dict) + "
-")
+                f.write(json.dumps(out_dict) + "\n")
                 
         return responses
-

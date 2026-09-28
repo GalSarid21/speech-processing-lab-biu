@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+import json
 
 
 class FewShotTurn(BaseModel):
@@ -33,7 +34,6 @@ class JudgeRequest(BaseRequest):
 
     @classmethod
     def from_json(cls, json_str: str) -> 'JudgeRequest':
-        import json
         try:
             data = json.loads(json_str)
             return cls(**data)

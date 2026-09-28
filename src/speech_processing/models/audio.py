@@ -10,6 +10,18 @@ from speech_processing.data.dtos import AudioRequest, AudioResponse
 from speech_processing.utils.consts import COT_START_TAG, DEFAULT_SAMPLING_RATE
 
 from speech_processing.models.base import BaseAudioModel
+from loguru import logger
+from speech_processing.config.core import GenerationParams
+from speech_processing.utils.audio import chunk_audio, crop_audio, get_silence_audio
+from speech_processing.utils.audio import crop_audio
+from speech_processing.utils.audio import get_silence_audio
+import hashlib
+import json
+import librosa
+import numpy
+import os
+import re
+import soundfile
 
 
 def _force_mono_audio(path: str, target_sr: int) -> str:
@@ -17,10 +29,6 @@ def _force_mono_audio(path: str, target_sr: int) -> str:
     Converts audio to mono and target_sr, caching it to avoid re-computation.
     Only required for engines (like Voxtral/Mistral) whose internal tokenizers crash on stereo/multi-channel audio.
     """
-    import os
-    import hashlib
-    import soundfile as sf
-    import librosa
     
     if path.startswith("http"):
         return path
@@ -53,9 +61,8 @@ class QwenAudioEngine(BaseAudioModel):
 
 
     def score_choices(self, requests: list[AudioRequest]) -> list[AudioResponse]:
-        import os
+        # Scoped import because vllm is not available on MacOS and would crash on import
         from vllm import SamplingParams
-        import numpy as np
         
         silence_path = get_silence_audio(self.config.target_sr)
         
@@ -90,8 +97,8 @@ class QwenAudioEngine(BaseAudioModel):
                 
                 sp = SamplingParams(max_tokens=1, prompt_logprobs=1)
                 
-                audio_out = self.adapter.llm.chat(messages=[audio_prompt], sampling_params=sp)[0]
-                silence_out = self.adapter.llm.chat(messages=[silence_prompt], sampling_params=sp)[0]
+                audio_out = self.adapter.llm.chat(messages=[audio_prompt], sampling_params=sp, add_generation_prompt=False, continue_final_message=True)[0]
+                silence_out = self.adapter.llm.chat(messages=[silence_prompt], sampling_params=sp, add_generation_prompt=False, continue_final_message=True)[0]
                 
                 # The logprobs for the assistant's turn are at the end of prompt_logprobs
                 # We need to sum them. For simplicity, we just sum all valid logprobs in the prompt
@@ -242,8 +249,8 @@ class QwenAudioEngine(BaseAudioModel):
 class VoxtralAudioEngine(BaseAudioModel):
     def __init__(self, config: AudioModelConfig) -> None:
         self.config = config
+        # Scoped import because vllm is not available on MacOS and would crash on import
         from speech_processing.adapters.vllm import VLLMAdapter
-        import os
 
         # Pass kwargs directly to VLLMAdapter
         self.adapter = VLLMAdapter(
@@ -258,18 +265,14 @@ class VoxtralAudioEngine(BaseAudioModel):
         self.tokenizer = self.adapter.tokenizer
 
     def batch_infer(self, requests: list[AudioRequest]) -> list[AudioResponse]:
-        import os
-        from loguru import logger
-        import json
-        from speech_processing.utils.audio import chunk_audio, crop_audio, get_silence_audio
-        from speech_processing.config.core import GenerationParams
+        # Scoped import because vllm is not available on MacOS and would crash on import
         from vllm import SamplingParams
         
         if not requests:
             return []
 
         # T3: Contrastive Scoring
-        if getattr(self.config, 'contrastive_alpha', -1) >= 0.0:
+        if getattr(self.config, 'contrastive_alpha', None) is not None:
             return self.score_choices(requests)
 
         first_inst = requests[0].instruction
@@ -331,7 +334,6 @@ class VoxtralAudioEngine(BaseAudioModel):
                         prev_msg = conv[-1]["content"]
                         try:
                             # Use regex to find JSON
-                            import re
                             match = re.search(r'\{[^{}]*\}', prev_msg)
                             if match:
                                 times = json.loads(match.group(0))
@@ -411,10 +413,8 @@ class VoxtralAudioEngine(BaseAudioModel):
         return responses
 
     def score_choices(self, requests: list[AudioRequest]) -> list[AudioResponse]:
+        # Scoped import because vllm is not available on MacOS and would crash on import
         from vllm import SamplingParams
-        from speech_processing.utils.audio import get_silence_audio
-        import librosa
-        import numpy as np
         
         silence_path = get_silence_audio(self.config.target_sr)
         alpha = self.config.contrastive_alpha
@@ -432,9 +432,6 @@ class VoxtralAudioEngine(BaseAudioModel):
             # Match duration for silence
             y, sr = librosa.load(req.audio_path, sr=self.config.target_sr)
             dur_s = len(y) / sr
-            from speech_processing.utils.audio import crop_audio
-            import soundfile as sf
-            import os, tempfile
             fd, custom_silence = tempfile.mkstemp(suffix=".wav")
             os.close(fd)
             sf.write(custom_silence, np.zeros(int(dur_s * self.config.target_sr), dtype=np.float32), self.config.target_sr)
@@ -456,8 +453,8 @@ class VoxtralAudioEngine(BaseAudioModel):
                 
                 sp = SamplingParams(max_tokens=1, prompt_logprobs=1)
                 
-                audio_out = self.adapter.llm.chat(messages=[audio_prompt], sampling_params=sp)[0]
-                silence_out = self.adapter.llm.chat(messages=[silence_prompt], sampling_params=sp)[0]
+                audio_out = self.adapter.llm.chat(messages=[audio_prompt], sampling_params=sp, add_generation_prompt=False, continue_final_message=True)[0]
+                silence_out = self.adapter.llm.chat(messages=[silence_prompt], sampling_params=sp, add_generation_prompt=False, continue_final_message=True)[0]
                 
                 def get_prob(out):
                     if not out.prompt_logprobs: return -100

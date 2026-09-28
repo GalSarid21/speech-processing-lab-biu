@@ -9,18 +9,18 @@ from tqdm import tqdm
 from datasets import load_dataset
 
 from speech_processing.models.audio_embeddings import LCOAudioEmbedder
+from datasets import load_dataset
+from loguru import logger
+from speech_processing.models.audio_embeddings import LCOAudioEmbedder
+from tqdm import tqdm
+import argparse
+import json
+import os
+import torch
+import yaml
 
 def main():
 
-    import argparse
-    import yaml
-    import json
-    import os
-    import torch
-    from loguru import logger
-    from tqdm import tqdm
-    from datasets import load_dataset
-    from speech_processing.models.audio_embeddings import LCOAudioEmbedder
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True, help="Path to the YAML configuration file.")
