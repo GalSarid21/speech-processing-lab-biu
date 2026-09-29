@@ -51,6 +51,7 @@ DEFAULT_NEAR_DUPLICATES = "data/icbhi_near_duplicates.json"
 TARGET_SR = 48_000
 TOP_K = 5
 PCT = 100.0
+EPSILON = 1e-12
 
 
 def load_clips(dataset_id: str, split: str) -> list[tuple[str, str, np.ndarray]]:
@@ -65,20 +66,53 @@ def load_clips(dataset_id: str, split: str) -> list[tuple[str, str, np.ndarray]]
     return clips
 
 
+def pooled_embedding(output) -> np.ndarray:
+    """The audio embedding from a CLAP `get_audio_features` call, as a unit-norm 1-D vector.
+
+    transformers >= 5 returns a `BaseModelOutputWithPooling` whose `pooler_output` holds the
+    projected audio embedding; older versions returned that tensor directly. Indexing the output
+    with `[0]` grabs `last_hidden_state` instead, which is a per-frame sequence, not an embedding.
+    """
+    tensor = getattr(output, "pooler_output", None)
+    if tensor is None:
+        tensor = output if torch.is_tensor(output) else output[0]
+
+    tensor = tensor.detach().float().cpu()
+    if tensor.ndim == 2 and tensor.shape[0] == 1:
+        tensor = tensor[0]
+    if tensor.ndim != 1:
+        raise ValueError(
+            f"Expected a 1-D CLAP audio embedding, got shape {tuple(tensor.shape)}. "
+            "The model returned a sequence rather than a pooled vector."
+        )
+
+    return (tensor / tensor.norm().clamp_min(EPSILON)).numpy()
+
+
 def embed(clips, model, processor, device: str) -> np.ndarray:
+    """One unit-norm row per clip, so the similarity matrix is a plain matmul."""
     vectors = []
     for _, _, waveform in clips:
-        inputs = processor(audios=waveform, sampling_rate=TARGET_SR, return_tensors="pt")
+        inputs = processor(audio=waveform, sampling_rate=TARGET_SR, return_tensors="pt")
         inputs = {key: value.to(device) for key, value in inputs.items()}
         with torch.no_grad():
-            embedding = model.get_audio_features(**inputs)[0]
-        vectors.append((embedding / embedding.norm()).cpu().numpy())
-    return np.stack(vectors)
+            output = model.get_audio_features(**inputs)
+        vectors.append(pooled_embedding(output))
+
+    matrix = np.stack(vectors)
+    if matrix.ndim != 2:
+        raise ValueError(f"Expected an (n_clips, dim) embedding matrix, got shape {matrix.shape}.")
+    return matrix
 
 
 def nearest_neighbors(
     embeddings: np.ndarray, item_ids: list[str], near_duplicates: dict[str, list[str]], top_k: int
 ) -> dict[str, list[int]]:
+    if embeddings.ndim != 2:
+        raise ValueError(f"Expected an (n_clips, dim) embedding matrix, got shape {embeddings.shape}.")
+
+    # The rows are unit-norm, so this matmul IS the full cosine-similarity matrix: cos(a, b) =
+    # a.b / (|a||b|) = a.b when |a| = |b| = 1. One matmul beats ~15k pairwise calls.
     similarity = embeddings @ embeddings.T
     index_of = {item_id: index for index, item_id in enumerate(item_ids)}
 
