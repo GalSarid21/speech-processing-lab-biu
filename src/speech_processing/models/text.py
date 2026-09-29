@@ -1,15 +1,19 @@
 from loguru import logger
-from vllm import LLM, SamplingParams
 
 from speech_processing.config.core import TextModelConfig
 from speech_processing.data.dtos.requests import TextRequest
 from speech_processing.data.dtos.responses import TextResponse
+from speech_processing.evaluation.answer_parsing import strip_thinking
 from speech_processing.models.base import BaseTextModel
-import re
+
+BATCH_SAMPLE_ID = "batch_text"
 
 
 class GemmaTextModel(BaseTextModel):
     def __init__(self, config: TextModelConfig) -> None:
+        # Scoped import because vllm is not installable on macOS and would crash on import
+        from vllm import LLM
+
         self.config = config
 
         logger.info(f"Loading Text Model from {config.model_id} via vLLM...")
@@ -25,39 +29,39 @@ class GemmaTextModel(BaseTextModel):
         self.tokenizer = self.llm.get_tokenizer()
 
     def batch_infer(self, requests: list[TextRequest]) -> list[TextResponse]:
+        # Scoped import because vllm is not installable on macOS and would crash on import
+        from vllm import SamplingParams
+
         prompts = []
         for req in requests:
-            conversation = []
-            
+            conversation: list[dict[str, str]] = []
+
             if self.config.enable_thinking:
                 conversation.append({"role": "system", "content": "<|think|>"})
-            
-            # 1. Add Few-Shot Turns
+
             for turn in req.few_shot_turns:
                 conversation.append({"role": "user", "content": turn.user_text})
-                # Gemma best practice: multi-turn history should only contain the final answer, not the `<|channel>thought...` block
+                # Gemma best practice: multi-turn history should only contain the final answer,
+                # not the `<|channel>thought...` block.
                 conversation.append({"role": "assistant", "content": turn.assistant_text})
-                
-            # 2. Add Target Instruction
+
             instruction = req.instruction if isinstance(req.instruction, str) else req.instruction[-1]
             conversation.append({"role": "user", "content": instruction})
-            
-            prompt_str = self.tokenizer.apply_chat_template(
-                conversation, add_generation_prompt=True, tokenize=False
-            )
-            prompts.append(prompt_str)
 
-        logger.info(f"Evaluating text batch of size {len(requests)} with thinking={'ON' if self.config.enable_thinking else 'OFF'}...")
+            prompts.append(self.tokenizer.apply_chat_template(conversation, add_generation_prompt=True, tokenize=False))
 
-        sampling_kwargs = {
-            "temperature": self.config.temperature,
-            "top_p": self.config.top_p,
-            "top_k": self.config.top_k,
-            "max_tokens": self.config.max_new_tokens,
-        }
-        if hasattr(self.config, "stop") and self.config.stop:
-            sampling_kwargs["stop"] = self.config.stop
-        sampling_params = SamplingParams(**sampling_kwargs)
+        logger.info(
+            f"Evaluating text batch of size {len(requests)} with thinking="
+            f"{'ON' if self.config.enable_thinking else 'OFF'}..."
+        )
+
+        sampling_params = SamplingParams(
+            temperature=self.config.temperature,
+            top_p=self.config.top_p,
+            top_k=self.config.top_k,
+            max_tokens=self.config.max_new_tokens,
+            stop=self.config.stop,
+        )
 
         try:
             outputs = self.llm.generate(prompts=prompts, sampling_params=sampling_params)
@@ -67,20 +71,15 @@ class GemmaTextModel(BaseTextModel):
             return []
 
         responses = []
-        for req, output_text in zip(requests, generated_texts):
-            # Strip any thinking channel before scoring
-            output_text = re.sub(r'<\|?[tT]hink\|?>.*?</\|?[tT]hink\|?>', '', output_text, flags=re.DOTALL).strip()
-            
-            sample_id = "batch_text"
-            if req.metadata and "item_id" in req.metadata:
-                sample_id = req.metadata["item_id"]
-                
+        for req, raw_text in zip(requests, generated_texts, strict=True):
+            output_text = strip_thinking(raw_text)
             responses.append(
                 TextResponse(
-                    sample_id=sample_id,
+                    sample_id=req.metadata.item_id if req.metadata else BATCH_SAMPLE_ID,
                     instruction=req.instruction,
                     generated_text=output_text,
-                    metadata=req.metadata
+                    final_turn_text=output_text,
+                    metadata=req.metadata,
                 )
             )
 

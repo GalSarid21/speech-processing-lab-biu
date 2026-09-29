@@ -1,373 +1,345 @@
-import os
+"""MMAR data layer: dataset loading, prompt rendering, and few-shot construction."""
+
 import json
+import os
+
 import pandas as pd
-from datasets import Audio, load_dataset
+from datasets import load_dataset
 from loguru import logger
-from speech_processing.utils.consts import COT_START_TAG, COT_END_TAG, ANSWER_START_TAG, ANSWER_END_TAG
+from pydantic import BaseModel
 
-from speech_processing.config.core import DatasetConfig
-from speech_processing.data.dtos import AudioRequest,FewShotTurn, TextRequest, BaseRequest
-import ast
+from speech_processing.config.core import DatasetConfig, ExperimentMeta
+from speech_processing.data.choices import (
+    answer_to_letter,
+    format_lettered_choices,
+    index_for_letter,
+    letter_for_index,
+    normalize_choices,
+    shuffle_permutations,
+)
+from speech_processing.data.dtos import (
+    AudioRequest,
+    BaseRequest,
+    FewShotTurn,
+    ItemMetadata,
+    TextRequest,
+)
+from speech_processing.utils.consts import (
+    ANSWER_END_TAG,
+    ANSWER_START_TAG,
+    COT_END_TAG,
+    COT_START_TAG,
+    DEFAULT_NUM_FEW_SHOTS,
+    NO_FEATURES_PLACEHOLDER,
+    NO_TRANSCRIPT_PLACEHOLDER,
+)
+from speech_processing.utils.exceptions import DatasetIntegrityError, FewShotLeakageError
 
-def load_icbhi_requests(config: DatasetConfig, is_text_only: bool = False, system_prompt: str | None = None) -> list[tuple[BaseRequest, str]]:
-    """Loads the ICBHI dataset, filters it, and returns a list of (Request, ground_truth)."""
+RANDOM_STATE = 42
+
+
+MMAR_ID_COLUMN = "id"
+MMAR_SUB_CATEGORY_COLUMN = "sub-category"
+
+FAKE_COTS = {
+    "KodXqxwrFiE_00-00-00_00-00-19": "Logically, I hear a clear instructional voice pointing out a specific type of fruit. Acoustically, the speech is direct, well-articulated, and recorded in a quiet environment. Based on this, the speaker specifically points out blueberries.",
+    "BV1Gt42157zM_00-00-00_00-00-17": "Logically, a girl speaks first, followed by a boy imitating her pronunciation. Acoustically, the boy artificially alters his pitch and vowel sounds to perform a mock accent. Based on this, the boy is imitating a British accent.",
+    "Scaei6tdU6k_00-00-00_00-00-10": "Logically, a woman is speaking, but her words contrast with her delivery. Acoustically, her tone is highly elevated, laughing, and playful, indicating she is not being serious. Based on this, she was being playful and expressing surprise.",
+}
+
+TRANSCRIPT_PREFIX = "Transcript: "
+DIARIZED_TRANSCRIPT_HEADER = "Diarized transcript:"
+ACOUSTIC_FEATURES_HEADER = "Measured acoustic features:"
+
+
+class MMARItem(BaseModel):
+    item_id: str
+    question: str
+    choices: list[str]
+    answer_letter: str
+    audio_path: str
+    transcript: str
+    modality: str = ""
+    category: str = ""
+    sub_category: str = ""
+
+
+class AcousticEvidence(BaseModel):
+    """Schema of one line of the T1 acoustic-features JSONL artifact."""
+
+    item_id: str
+    diarized_transcript: str
+    acoustic_features: str
+
+
+def _load_mmar_frame(config: DatasetConfig) -> pd.DataFrame:
     logger.info(f"Loading {config.dataset_id} dataset from HuggingFace...")
-    ds = load_dataset(config.dataset_id, split=config.split)
-    
-    # Cast audio to NOT decode so we can extract the raw bytes safely
-    ds = ds.cast_column("audio", Audio(decode=False))
+    return load_dataset(config.dataset_id, split=config.split, streaming=False).to_pandas()
 
-    df = ds.to_pandas()
 
-    if config.sample_ids:
-        # Filter explicitly by the provided sample IDs
-        sample_df = df[df["file"].isin(config.sample_ids)]
-        found_ids = set(sample_df["file"].tolist())
-        missing_ids = set(config.sample_ids) - found_ids
-        
-        if missing_ids:
-            logger.warning(f"Could not find {len(missing_ids)} specified sample IDs (e.g. {list(missing_ids)[:3]})")
-        else:
-            logger.info("100% of specified sample IDs were successfully fetched.")
-            
-        if config.num_samples is not None:
-            if config.num_samples > len(sample_df):
-                logger.warning(f"Requested {config.num_samples} samples but only {len(sample_df)} available in list. Using all.")
-            else:
-                sample_df = sample_df.sample(n=config.num_samples, random_state=42)
-    else:
-        # Filter dataset by labels and pad if necessary
-        filtered_df = df[
-            df["label"].str.contains("|".join(config.target_labels), case=False, na=False)
-        ]
+def _load_transcripts(config: DatasetConfig) -> dict[str, str]:
+    if not config.transcripts_file or not os.path.exists(config.transcripts_file):
+        logger.warning(f"No transcripts file at {config.transcripts_file}; proceeding without transcripts.")
+        return {}
+    with open(config.transcripts_file) as f:
+        return json.load(f)
 
-        if config.num_samples is None:
-            sample_df = filtered_df
-        else:
-            num_samples = config.num_samples
-            if len(filtered_df) < num_samples:
-                logger.warning(
-                    f"Only found {len(filtered_df)} matching samples. Padding with disjoint samples."
-                )
-                # Take all filtered, then pad from the inverse subset to avoid duplicates
-                remaining_needed = num_samples - len(filtered_df)
-                inverse_df = df[~df.index.isin(filtered_df.index)]
-                pad_df = inverse_df.sample(n=min(remaining_needed, len(inverse_df)), random_state=42)
-                sample_df = pd.concat([filtered_df, pad_df])
-            else:
-                sample_df = filtered_df.sample(n=num_samples, random_state=42)
 
-    results = []
-    for _, row in sample_df.iterrows():
-        if is_text_only:
-            req = TextRequest(
-                instruction=row["instruction"],
-                system_prompt=system_prompt
-            )
-        else:
-            audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
-            req = AudioRequest(
-                instruction=row["instruction"],
-                system_prompt=system_prompt,
-                assistant_prefill=f"{COT_START_TAG}\n" if COT_START_TAG in str(row["instruction"]) else None, 
-                audio_path=row["file"],
-                audio_bytes=audio_bytes
-            )
-        results.append((req, row["label"]))
+def load_acoustic_evidence(path: str | None) -> dict[str, AcousticEvidence]:
+    """Loads the T1 artifact. Missing files are fatal: the experiment would silently become the baseline."""
+    if not path or not os.path.exists(path):
+        raise DatasetIntegrityError(
+            f"Acoustic evidence file not found: {path}. Run scripts/extract_acoustic_features.py first."
+        )
 
-    logger.info(f"Successfully prepared {len(results)} samples from the dataset.")
-    return results
+    evidence: dict[str, AcousticEvidence] = {}
+    with open(path) as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line:
+                continue
+            record = AcousticEvidence.model_validate_json(line)
+            evidence[record.item_id] = record
+    logger.info(f"Loaded acoustic evidence for {len(evidence)} items from {path}.")
+    return evidence
 
-def load_mmar_requests(config: DatasetConfig, experiment_meta=None, is_text_only: bool = False) -> list[tuple[BaseRequest, str]]:
-    """Loads the MMAR dataset test split (from text files and HuggingFace)."""
 
-    logger.info(f"Loading {config.dataset_id} dataset from HuggingFace...")
-    ds = load_dataset(config.dataset_id, split=config.split, streaming=False)
-    df = ds.to_pandas()
-    
+def _parse_mmar_row(row, config: DatasetConfig, transcripts: dict[str, str]) -> MMARItem:
+    item_id = str(row[MMAR_ID_COLUMN])
+    choices = normalize_choices(row["choices"], item_id)
+    audio_base = config.audio_base_dir or ""
+    return MMARItem(
+        item_id=item_id,
+        question=str(row["question"]),
+        choices=choices,
+        answer_letter=answer_to_letter(row["answer"], choices, item_id),
+        audio_path=os.path.join(audio_base, str(row["audio_path"]).lstrip("./")),
+        transcript=transcripts.get(item_id, NO_TRANSCRIPT_PLACEHOLDER),
+        modality=str(row.get("modality", "") or ""),
+        category=str(row.get("category", "") or ""),
+        sub_category=str(row.get(MMAR_SUB_CATEGORY_COLUMN, "") or ""),
+    )
+
+
+def _select_eval_rows(df: pd.DataFrame, config: DatasetConfig) -> pd.DataFrame:
     if config.sample_ids:
         target_ids = set(config.sample_ids)
+        missing = target_ids - set(df[MMAR_ID_COLUMN].tolist())
+        if missing:
+            logger.warning(f"Could not find {len(missing)} requested MMAR ids (e.g. {sorted(missing)[:3]}).")
+    elif config.num_samples is None:
+        target_ids = set(df[MMAR_ID_COLUMN].tolist())
     else:
-        # Fallback to taking N samples
-        if config.num_samples is None:
-            target_ids = set(df['id'].tolist())
-        else:
-            target_ids = set(df['id'].head(config.num_samples).tolist())
+        target_ids = set(df[MMAR_ID_COLUMN].head(config.num_samples).tolist())
 
-    sample_df = df[df['id'].isin(target_ids)]
+    sample_df = df[df[MMAR_ID_COLUMN].isin(target_ids)]
 
     if config.num_samples is not None:
         if config.num_samples > len(sample_df):
             logger.warning(f"Requested {config.num_samples} samples but only {len(sample_df)} available. Using all.")
         else:
-            sample_df = sample_df.sample(n=config.num_samples, random_state=42)
+            sample_df = sample_df.sample(n=config.num_samples, random_state=RANDOM_STATE)
 
-    # Load transcripts if they exist
-    transcripts = {}
-    if config.transcripts_file and os.path.exists(config.transcripts_file):
-        with open(config.transcripts_file, "r") as f:
-            transcripts = json.load(f)
+    return sample_df
 
-    results = []
+
+def _build_question_block(question: str, choices: list[str]) -> str:
+    return f"Question: {question}\nChoices:\n{format_lettered_choices(choices)}"
+
+
+def _build_context_block(
+    item: MMARItem,
+    meta: ExperimentMeta | None,
+    evidence: AcousticEvidence | None,
+    include_transcript: bool,
+) -> str:
+    parts: list[str] = []
+    if include_transcript:
+        parts.append(f"{TRANSCRIPT_PREFIX}{item.transcript}")
+    if meta is not None and meta.inject_diarized_transcript:
+        text = evidence.diarized_transcript if evidence else NO_FEATURES_PLACEHOLDER
+        parts.append(f"{DIARIZED_TRANSCRIPT_HEADER}\n{text}")
+    if meta is not None and meta.inject_acoustic_features:
+        text = evidence.acoustic_features if evidence else NO_FEATURES_PLACEHOLDER
+        parts.append(f"{ACOUSTIC_FEATURES_HEADER}\n{text}")
+    return "\n\n".join(parts)
+
+
+def _build_instruction(
+    meta: ExperimentMeta | None, context: str, question_block: str, question: str
+) -> str | list[str]:
+    body = f"{context}\n\n{question_block}" if context else question_block
+
+    if meta is None:
+        return body
+
+    if isinstance(meta.prompt, str):
+        return f"{meta.prompt}\n\n{body}"
+
+    turns = list(meta.prompt)
+    if meta.presentation == "two_pass_localization":
+        turns[0] = f"{turns[0]}\n\nQuestion: {question}"
+    turns[-1] = f"{turns[-1]}\n\n{body}"
+    return turns
+
+
+def load_mmar_requests(
+    config: DatasetConfig,
+    experiment_meta: ExperimentMeta | None = None,
+    is_text_only: bool = False,
+) -> list[tuple[BaseRequest, str]]:
+    """Loads the MMAR eval split and renders one request per (item, choice-order variant)."""
+    df = _load_mmar_frame(config)
+    sample_df = _select_eval_rows(df, config)
+    transcripts = _load_transcripts(config)
+
+    evidence_by_id: dict[str, AcousticEvidence] = {}
+    if experiment_meta is not None and experiment_meta.uses_acoustic_evidence:
+        evidence_by_id = load_acoustic_evidence(config.acoustic_features_file)
+
+    num_variants = experiment_meta.num_shuffled_variants if experiment_meta else 1
+    results: list[tuple[BaseRequest, str]] = []
+    missing_evidence = 0
+
     for _, row in sample_df.iterrows():
-        item_id = row['id']
-        question = row['question']
-        choices = row['choices']
-        if isinstance(choices, str):
-            try:
-                choices = ast.literal_eval(choices)
-            except (SyntaxError, ValueError):
-                pass
-        
-        # B5: Convert choices to list (handles numpy array from pandas)
-        choices = list(choices)
-        
-        # B5: Render lettered options
-        lettered_choices = "\n".join([f"{chr(65+i)}. {choice}" for i, choice in enumerate(choices)])
-        
-        # Convert expected answer to corresponding letter if possible
-        answer = row['answer']
-        if answer in choices:
-            answer = chr(65 + choices.index(answer))
-        
-        audio_rel_path = row['audio_path']
-        audio_base = config.audio_base_dir or ""
-        audio_path = os.path.join(audio_base, audio_rel_path.lstrip('./'))
-        
-        transcript = transcripts.get(item_id, "[NO TRANSCRIPT]")
-        
-        if experiment_meta:
-            prompt_def = experiment_meta.prompt
-            
-            if isinstance(prompt_def, list):
-                formatted_instruction = prompt_def.copy()
-            else:
-                formatted_instruction = prompt_def
-                
-            suffix = ""
-            # B1: Use explicit fields instead of substring matching
-            if experiment_meta.use_transcript:
-                suffix += f"\n\nTranscript: {transcript}"
-            suffix += f"\n\nQuestion: {question}\nChoices:\n{lettered_choices}"
-            
-            if isinstance(formatted_instruction, list):
-                formatted_instruction[-1] += suffix
-            else:
-                formatted_instruction += suffix
-        else:
-            formatted_instruction = f"Question: {question}\nChoices:\n{lettered_choices}"
-        
-        system_prompt = experiment_meta.system_prompt if experiment_meta and hasattr(experiment_meta, 'system_prompt') else None
-        
-        if is_text_only:
-            req = TextRequest(
-                instruction=formatted_instruction,
-                assistant_prefill=f"{COT_START_TAG}\n" if COT_START_TAG in str(formatted_instruction) else None,
-                system_prompt=system_prompt,
-                metadata={
-                    "question": question,
-                    "choices": choices,
-                    "transcript": transcript,
-                    "item_id": item_id,
-                    "modality": row.get("modality", ""),
-                    "category": row.get("category", ""),
-                    "sub-category": row.get("sub-category", "")
-                }
-            )
-        else:
-            req = AudioRequest(
-                instruction=formatted_instruction,
-                assistant_prefill=f"{COT_START_TAG}\n" if COT_START_TAG in str(formatted_instruction) else None,
-                system_prompt=system_prompt,
-                audio_path=audio_path,
-                metadata={
-                    "question": question,
-                    "choices": choices,
-                    "transcript": transcript,
-                    "item_id": item_id,
-                    "modality": row.get("modality", ""),
-                    "category": row.get("category", ""),
-                    "sub-category": row.get("sub-category", "")
-                }
-            )
-        results.append((req, answer))
+        item = _parse_mmar_row(row, config, transcripts)
+        evidence = evidence_by_id.get(item.item_id)
+        if experiment_meta is not None and experiment_meta.uses_acoustic_evidence and evidence is None:
+            missing_evidence += 1
 
-    logger.info(f"Successfully prepared {len(results)} MMAR samples.")
+        original_answer_index = index_for_letter(item.answer_letter)
+        context = _build_context_block(
+            item,
+            experiment_meta,
+            evidence,
+            include_transcript=bool(experiment_meta and experiment_meta.use_transcript),
+        )
+
+        for variant_idx, permutation in enumerate(shuffle_permutations(item.item_id, len(item.choices), num_variants)):
+            display_choices = [item.choices[p] for p in permutation]
+            question_block = _build_question_block(item.question, display_choices)
+            instruction = _build_instruction(experiment_meta, context, question_block, item.question)
+            ground_truth = letter_for_index(permutation.index(original_answer_index))
+
+            metadata = ItemMetadata(
+                item_id=item.item_id,
+                question=item.question,
+                choices=display_choices,
+                transcript=item.transcript,
+                modality=item.modality,
+                category=item.category,
+                sub_category=item.sub_category,
+            )
+            if num_variants > 1:
+                metadata = metadata.model_copy(
+                    update={
+                        "original_item_id": item.item_id,
+                        "variant_idx": variant_idx,
+                        "permutation": permutation,
+                        "original_choices": item.choices,
+                    }
+                )
+
+            last_turn = instruction[-1] if isinstance(instruction, list) else instruction
+            prefill = f"{COT_START_TAG}\n" if COT_START_TAG in last_turn else None
+            system_prompt = experiment_meta.system_prompt if experiment_meta else None
+
+            if is_text_only:
+                request: BaseRequest = TextRequest(
+                    instruction=instruction,
+                    assistant_prefill=prefill,
+                    system_prompt=system_prompt,
+                    metadata=metadata,
+                )
+            else:
+                request = AudioRequest(
+                    instruction=instruction,
+                    assistant_prefill=prefill,
+                    system_prompt=system_prompt,
+                    audio_path=item.audio_path,
+                    metadata=metadata,
+                )
+            results.append((request, ground_truth))
+
+    if missing_evidence:
+        logger.warning(f"{missing_evidence} eval items have no acoustic evidence; using {NO_FEATURES_PLACEHOLDER}.")
+    logger.info(f"Successfully prepared {len(results)} MMAR requests.")
     return results
 
-def get_mmar_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_only: bool = False, num_shots: int = 3) -> list[FewShotTurn]:
-    """Loads and formats few-shot examples for MMAR experiments."""
-    
+
+def read_few_shot_ids(config: DatasetConfig) -> list[str]:
     if not config.few_shot_ids_file or not os.path.exists(config.few_shot_ids_file):
         logger.warning("No few-shot IDs file found. Cannot load few-shot examples.")
         return []
-        
-    with open(config.few_shot_ids_file, "r") as f:
-        few_shot_ids = [line.strip() for line in f if line.strip()][:num_shots]
-        
-    ds = load_dataset(config.dataset_id, split=config.split, streaming=False)
-    df = ds.to_pandas()
-    
-    sample_df = df[df['id'].isin(few_shot_ids)]
-    
-    # Load transcripts if they exist
-    transcripts = {}
-    if config.transcripts_file and os.path.exists(config.transcripts_file):
-        with open(config.transcripts_file, "r") as f:
-            transcripts = json.load(f)
-            
-    turns = []
-    # Ensure they are added in the exact order requested
-    for target_id in few_shot_ids:
-        row_subset = sample_df[sample_df['id'] == target_id]
-        if row_subset.empty:
-            continue
-        row = row_subset.iloc[0]
-        
-        item_id = row['id']
-        question = row['question']
-        choices = row['choices']
-        if isinstance(choices, str):
-            try: choices = ast.literal_eval(choices)
-            except (SyntaxError, ValueError): pass
-        
-        choices = list(choices)
-        lettered_choices = "\n".join([f"{chr(65+i)}. {choice}" for i, choice in enumerate(choices)])
-        
-        answer = row['answer']
-        if answer in choices:
-            answer = chr(65 + choices.index(answer))
-            
-        audio_rel_path = row['audio_path']
-        audio_base = config.audio_base_dir or ""
-        audio_path = os.path.join(audio_base, audio_rel_path.lstrip('./'))
-        
-        transcript = transcripts.get(item_id, "[NO TRANSCRIPT]")
-        
-        if experiment_meta.few_shot_include_transcript or experiment_meta.use_transcript:
-            user_text = f"Transcript: {transcript}\n\nQuestion: {question}\nChoices:\n{lettered_choices}"
-        else:
-            user_text = f"Question: {question}\nChoices:\n{lettered_choices}"
+    with open(config.few_shot_ids_file) as f:
+        return [line.strip() for line in f if line.strip()]
 
-        fake_cots = {
-            "KodXqxwrFiE_00-00-00_00-00-19": "Logically, I hear a clear instructional voice pointing out a specific type of fruit. Acoustically, the speech is direct, well-articulated, and recorded in a quiet environment. Based on this, the speaker specifically points out blueberries.",
-            "BV1Gt42157zM_00-00-00_00-00-17": "Logically, a girl speaks first, followed by a boy imitating her pronunciation. Acoustically, the boy artificially alters his pitch and vowel sounds to perform a mock accent. Based on this, the boy is imitating a British accent.",
-            "Scaei6tdU6k_00-00-00_00-00-10": "Logically, a woman is speaking, but her words contrast with her delivery. Acoustically, her tone is highly elevated, laughing, and playful, indicating she is not being serious. Based on this, she was being playful and expressing surprise."
-        }
 
-        assistant_text = answer
-        if experiment_meta.use_cot:
-            reasoning = fake_cots.get(item_id, f"The correct choice is {answer}.")
-            assistant_text = f"{COT_START_TAG}\n{reasoning}\n{COT_END_TAG}\n{ANSWER_START_TAG}\n{answer}\n{ANSWER_END_TAG}"
+def _load_mmar_items(config: DatasetConfig, ids: list[str]) -> list[MMARItem]:
+    if not ids:
+        return []
+    df = _load_mmar_frame(config)
+    transcripts = _load_transcripts(config)
+    by_id = {str(row[MMAR_ID_COLUMN]): row for _, row in df[df[MMAR_ID_COLUMN].isin(ids)].iterrows()}
+    return [_parse_mmar_row(by_id[item_id], config, transcripts) for item_id in ids if item_id in by_id]
 
-        is_few_shot_text_only = experiment_meta.few_shot_mode == "text"
-            
-        turns.append(FewShotTurn(
-            audio_path=None if is_few_shot_text_only else audio_path,
-            audio_bytes=None,
-            user_text=user_text,
-            assistant_text=assistant_text
-        ))
-        
-    logger.info(f"Successfully loaded {len(turns)} authentic MMAR few-shot examples.")
-    return turns
 
-def get_icbhi_few_shot_turns(config: DatasetConfig, experiment_meta, is_text_only: bool = False, num_shots_per_class: int = 1) -> list[FewShotTurn]:
-    """Loads authentic audio few-shot examples from the ICBHI train split."""
-    logger.info(f"Dynamically sampling {num_shots_per_class} ICBHI few-shot examples per class from the train split...")
-    ds = load_dataset(config.dataset_id, split="train")
-    ds = ds.cast_column("audio", Audio(decode=False))
-    df = ds.to_pandas()
-    
-    turns = []
-    for label in config.target_labels:
-        label_df = df[df["label"].str.contains(label, case=False, na=False)]
-        if label_df.empty:
-            continue
-            
-        sample_df = label_df.sample(n=min(num_shots_per_class, len(label_df)), random_state=42)
-        
-        for _, row in sample_df.iterrows():
-            audio_bytes = row["audio"]["bytes"] if isinstance(row["audio"], dict) and "bytes" in row["audio"] else None
-            
-            user_text = row["instruction"]
-            fake_reasoning = f"The audio presents acoustic signatures indicative of {row['label']}."
-            assistant_text = f"{COT_START_TAG}\n{fake_reasoning}\n{COT_END_TAG}\n{ANSWER_START_TAG}\n{row['label']}\n{ANSWER_END_TAG}"
-            
-            turns.append(FewShotTurn(
-                audio_path=row["file"],
-                audio_bytes=audio_bytes,
-                user_text=user_text,
-                assistant_text=assistant_text
-            ))
-            
-    logger.info(f"Successfully prepared {len(turns)} authentic ICBHI few-shot examples.")
-    return turns
+def _build_few_shot_turn(item: MMARItem, meta: ExperimentMeta) -> FewShotTurn:
+    question_block = _build_question_block(item.question, item.choices)
+    user_text = (
+        f"{TRANSCRIPT_PREFIX}{item.transcript}\n\n{question_block}"
+        if meta.few_shot_include_transcript
+        else question_block
+    )
 
-def get_mmar_few_shot_turns_pool(config: DatasetConfig, experiment_meta, is_text_only: bool = False) -> dict[str, FewShotTurn]:
-    """Loads all authentic audio few-shot examples into a pool for RAG."""
-    
-    if not config.few_shot_ids_file or not os.path.exists(config.few_shot_ids_file):
-        logger.warning("No few-shot IDs file found.")
-        return {}
-        
-    with open(config.few_shot_ids_file, "r") as f:
-        few_shot_ids = [line.strip() for line in f if line.strip()]
-        
-    ds = load_dataset(config.dataset_id, split=config.split, streaming=False)
-    df = ds.to_pandas()
-    
-    sample_df = df[df['id'].isin(few_shot_ids)]
-    
-    transcripts = {}
-    if config.transcripts_file and os.path.exists(config.transcripts_file):
-        with open(config.transcripts_file, "r") as f:
-            transcripts = json.load(f)
-            
-    pool = {}
-    for _, row in sample_df.iterrows():
-        item_id = row['id']
-        question = row['question']
-        choices = row['choices']
-        if isinstance(choices, str):
-            try: choices = ast.literal_eval(choices)
-            except (SyntaxError, ValueError): pass
-        
-        choices = list(choices)
-        lettered_choices = "\n".join([f"{chr(65+i)}. {choice}" for i, choice in enumerate(choices)])
-        
-        answer = row['answer']
-        if answer in choices:
-            answer = chr(65 + choices.index(answer))
-            
-        audio_rel_path = row['audio_path']
-        audio_base = config.audio_base_dir or ""
-        audio_path = os.path.join(audio_base, audio_rel_path.lstrip('./'))
-        transcript = transcripts.get(item_id, "[NO TRANSCRIPT]")
-        
-        if experiment_meta.few_shot_include_transcript or experiment_meta.use_transcript:
-            user_text = f"Transcript: {transcript}\n\nQuestion: {question}\nChoices:\n{lettered_choices}"
-        else:
-            user_text = f"Question: {question}\nChoices:\n{lettered_choices}"
-
-        fake_cots = {
-            "KodXqxwrFiE_00-00-00_00-00-19": "Logically, I hear a clear instructional voice pointing out a specific type of fruit. Acoustically, the speech is direct, well-articulated, and recorded in a quiet environment. Based on this, the speaker specifically points out blueberries.",
-            "BV1Gt42157zM_00-00-00_00-00-17": "Logically, a girl speaks first, followed by a boy imitating her pronunciation. Acoustically, the boy artificially alters his pitch and vowel sounds to perform a mock accent. Based on this, the boy is imitating a British accent.",
-            "Scaei6tdU6k_00-00-00_00-00-10": "Logically, a woman is speaking, but her words contrast with her delivery. Acoustically, her tone is highly elevated, laughing, and playful, indicating she is not being serious. Based on this, she was being playful and expressing surprise."
-        }
-
-        assistant_text = answer
-        if experiment_meta.use_cot:
-            reasoning = fake_cots.get(item_id, f"The correct choice is {answer}.")
-            assistant_text = f"{COT_START_TAG}\n{reasoning}\n{COT_END_TAG}\n{ANSWER_START_TAG}\n{answer}\n{ANSWER_END_TAG}"
-
-        is_few_shot_text_only = experiment_meta.few_shot_mode == "text"
-            
-        pool[item_id] = FewShotTurn(
-            audio_path=None if is_few_shot_text_only else audio_path,
-            audio_bytes=None,
-            user_text=user_text,
-            assistant_text=assistant_text
+    assistant_text = item.answer_letter
+    if meta.use_cot:
+        reasoning = FAKE_COTS.get(item.item_id, f"The correct choice is {item.answer_letter}.")
+        assistant_text = (
+            f"{COT_START_TAG}\n{reasoning}\n{COT_END_TAG}\n{ANSWER_START_TAG}\n{item.answer_letter}\n{ANSWER_END_TAG}"
         )
-        
-    return pool
+
+    return FewShotTurn(
+        audio_path=None if meta.few_shot_mode == "text" else item.audio_path,
+        audio_bytes=None,
+        user_text=user_text,
+        assistant_text=assistant_text,
+    )
+
+
+def get_mmar_few_shot_turns(
+    config: DatasetConfig, meta: ExperimentMeta, num_shots: int = DEFAULT_NUM_FEW_SHOTS
+) -> tuple[list[str], list[FewShotTurn]]:
+    """Returns the shot ids alongside the turns so the caller can assert disjointness."""
+    shot_ids = read_few_shot_ids(config)[:num_shots]
+    items = _load_mmar_items(config, shot_ids)
+    turns = [_build_few_shot_turn(item, meta) for item in items]
+    logger.info(f"Successfully loaded {len(turns)} authentic MMAR few-shot examples.")
+    return [item.item_id for item in items], turns
+
+
+def get_mmar_few_shot_turns_pool(config: DatasetConfig, meta: ExperimentMeta) -> dict[str, FewShotTurn]:
+    items = _load_mmar_items(config, read_few_shot_ids(config))
+    return {item.item_id: _build_few_shot_turn(item, meta) for item in items}
+
+
+def validate_few_shot_disjointness(
+    eval_ids: set[str], shot_ids: set[str], rag_mapping: dict[str, list[str]] | None = None
+) -> None:
+    """Raises when a few-shot example is also an eval item, or when RAG retrieves one."""
+    overlap = eval_ids & shot_ids
+    if overlap:
+        raise FewShotLeakageError(f"{len(overlap)} few-shot ids are also eval items (e.g. {sorted(overlap)[:3]}).")
+
+    if not rag_mapping:
+        return
+
+    for item_id in eval_ids:
+        retrieved = set(rag_mapping.get(item_id, []))
+        if item_id in retrieved:
+            raise FewShotLeakageError(f"RAG mapping retrieves eval item {item_id} for itself.")
+        leaked = retrieved & eval_ids
+        if leaked:
+            raise FewShotLeakageError(
+                f"RAG mapping for eval item {item_id} retrieves other eval items: {sorted(leaked)[:3]}."
+            )

@@ -6,7 +6,7 @@ from speech_processing.data.dtos import (
     JudgeRequest,
     JudgeResponse,
     TextRequest,
-    TextResponse
+    TextResponse,
 )
 
 

@@ -1,258 +1,194 @@
+import json
 
 import pandas as pd
 import pytest
 from assertpy import assert_that
 
-from speech_processing.config.core import DatasetConfig
-from speech_processing.data.dataset import load_icbhi_requests
+from speech_processing.config.core import ExperimentMeta
+from speech_processing.data.dataset import (
+    get_mmar_few_shot_turns,
+    load_mmar_requests,
+    validate_few_shot_disjointness,
+)
+from speech_processing.data.dtos import AudioRequest, TextRequest
+from speech_processing.utils.consts import NO_FEATURES_PLACEHOLDER
+from speech_processing.utils.exceptions import DatasetIntegrityError, FewShotLeakageError
+from tests.conftest import MMAR_ROWS, SHOT_ID
+
+BASE_META_FIELDS = {
+    "experiment_name": "test",
+    "prompt": "Answer the question.",
+    "max_new_tokens": 64,
+    "batch_size": 2,
+}
 
 
-@pytest.fixture
-def mock_dataset_config():
-    return DatasetConfig(
-        dataset_id="mock/dataset",
-        target_labels=["COPD", "Healthy"],
-        split="test",
-        num_samples=100
+def meta(**overrides) -> ExperimentMeta:
+    return ExperimentMeta(**(BASE_META_FIELDS | overrides))
+
+
+# --------------------------------------------------------------------------------------
+# MMAR: rendering
+# --------------------------------------------------------------------------------------
+
+
+def test_mmar_requests_are_lettered_and_joined(patched_mmar, mmar_config):
+    items = load_mmar_requests(mmar_config, meta())
+
+    assert_that([gt for _, gt in items]).is_equal_to(["B", "B"])
+
+    first = items[0][0]
+    assert_that(first).is_instance_of(AudioRequest)
+    assert_that(first.audio_path).is_equal_to("data/MMAR/audio/id1.wav")
+    assert_that(first.instruction).contains("Choices:\nA. the first speaker\nB. the second speaker")
+    assert_that(first.metadata.category).is_equal_to("Speaker")
+    assert_that(first.metadata.sub_category).is_equal_to("Order")
+
+
+@pytest.mark.parametrize(
+    "overrides, present, absent",
+    [
+        ({}, ["Question: Who speaks first?"], ["Transcript:", "Diarized transcript:", "Measured acoustic"]),
+        ({"use_transcript": True}, ["Transcript: hello there"], ["Diarized transcript:", "Measured acoustic"]),
+        (
+            {"inject_diarized_transcript": True},
+            ["Diarized transcript:", "line for ID1"],
+            ["Transcript: hello there", "Measured acoustic"],
+        ),
+        (
+            {"inject_acoustic_features": True},
+            ["Measured acoustic features:", "F0 mean 180 Hz"],
+            ["Transcript: hello there", "Diarized transcript:"],
+        ),
+    ],
+)
+def test_mmar_context_injection(patched_mmar, mmar_config, overrides, present, absent):
+    instruction = load_mmar_requests(mmar_config, meta(**overrides))[0][0].instruction
+
+    for fragment in present:
+        assert_that(instruction).contains(fragment)
+    for fragment in absent:
+        assert_that(instruction).does_not_contain(fragment)
+
+
+def test_missing_features_file_raises(patched_mmar, mmar_config, tmp_path):
+    config = mmar_config.model_copy(update={"acoustic_features_file": str(tmp_path / "nope.jsonl")})
+    assert_that(load_mmar_requests).raises(DatasetIntegrityError).when_called_with(
+        config, meta(inject_acoustic_features=True)
     )
 
 
-def test_dataset_filtering_and_padding(mocker, mock_dataset_config):
-    mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
-    mock_ds = mocker.MagicMock()
-    
-    # 2 COPD, 1 Healthy, 2 FakeDisease (which should be filtered out)
-    df = pd.DataFrame({
-        "instruction": ["prompt1", "prompt2", "prompt3", "prompt4", "prompt5"],
-        "file": ["f1.wav", "f2.wav", "f3.wav", "f4.wav", "f5.wav"],
-        "label": ["COPD", "FakeDisease", "Healthy", "COPD", "FakeDisease"],
-        "audio": [{"bytes": b"1"}, {"bytes": b"2"}, {"bytes": b"3"}, {"bytes": b"4"}, {"bytes": b"5"}]
-    })
-    
-    mock_ds.cast_column.return_value = mock_ds
-    mock_ds.to_pandas.return_value = df
-    mock_load_dataset.return_value = mock_ds
+def test_item_without_evidence_gets_placeholder(patched_mmar, mmar_config, tmp_path):
+    partial = tmp_path / "partial.jsonl"
+    partial.write_text(json.dumps({"item_id": "ID1", "diarized_transcript": "d", "acoustic_features": "f"}) + "\n")
+    config = mmar_config.model_copy(update={"acoustic_features_file": str(partial)})
 
-    # We ask for 5 samples, but only 3 are valid (COPD, Healthy, COPD).
-    # It should pad the remaining 2 with disjoint samples (the 2 FakeDisease ones).
-    mock_dataset_config.num_samples = 5
-    results = load_icbhi_requests(config=mock_dataset_config)
-    
-    assert_that(results).is_length(5)
-    
-    # Ensure all elements are AudioRequest DTOs and string ground truths
-    for req, label in results:
-        assert_that(req.instruction).starts_with("prompt")
-        assert isinstance(req, __import__('speech_processing.data.dtos.requests', fromlist=['AudioRequest']).AudioRequest)
-        assert_that(req.audio_path).ends_with(".wav")
-        assert_that(req.audio_bytes).is_not_none()
-        assert_that(label).is_in("COPD", "Healthy", "FakeDisease")
-    
-    # Extract the labels that were returned
-    returned_labels = [gt for _, gt in results]
-    assert_that(returned_labels.count("COPD")).is_equal_to(2)
-    assert_that(returned_labels.count("Healthy")).is_equal_to(1)
-    # The padding should have pulled the 2 FakeDisease samples
-    assert_that(returned_labels.count("FakeDisease")).is_equal_to(2)
+    items = load_mmar_requests(config, meta(inject_acoustic_features=True))
+    assert_that(items[1][0].instruction).contains(NO_FEATURES_PLACEHOLDER)
 
 
-def test_dataset_no_padding_needed(mocker, mock_dataset_config):
-    mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
-    mock_ds = mocker.MagicMock()
-    df = pd.DataFrame({
-        "instruction": ["p1", "p2", "p3", "p4"],
-        "file": ["1.wav", "2.wav", "3.wav", "4.wav"],
-        "label": ["COPD", "COPD", "Healthy", "Healthy"],
-        "audio": [{"bytes": b"1"}, {"bytes": b"2"}, {"bytes": b"3"}, {"bytes": b"4"}]
-    })
-    mock_ds.cast_column.return_value = mock_ds
-    mock_ds.to_pandas.return_value = df
-    mock_load_dataset.return_value = mock_ds
+def test_text_only_builds_text_request_with_transcript(patched_mmar, mmar_config):
+    text_meta = meta(text_only=True, use_transcript=True)
+    req = load_mmar_requests(mmar_config, text_meta, is_text_only=True)[0][0]
 
-    # We only ask for 2 samples out of 4 valid ones
-    mock_dataset_config.num_samples = 2
-    results = load_icbhi_requests(config=mock_dataset_config)
-    
-    assert_that(results).is_length(2)
-    returned_labels = [gt for _, gt in results]
-    for label in returned_labels:
-        assert_that(label).is_in("COPD", "Healthy")
+    assert_that(req).is_instance_of(TextRequest)
+    assert_that(req.instruction).contains("Transcript: hello there")
 
-def test_load_mmar_requests(mocker, mock_dataset_config):
-    
-    mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
-    mock_ds = mocker.MagicMock()
-    
-    df = pd.DataFrame({
-        "id": ["ID1", "ID2", "ID3"],
-        "question": ["What sound is this?", "What accent?", "Is it loud?"],
-        # MMAR stores choices as literal string representation of a list
-        "choices": ["['Dog', 'Cat']", "['British', 'American']", "['Yes', 'No']"],
-        "answer": ["Dog", "British", "Yes"],
-        "audio_path": ["./audio/id1.wav", "./audio/id2.wav", "./audio/id3.wav"]
-    })
-    
-    mock_ds.to_pandas.return_value = df
-    mock_load_dataset.return_value = mock_ds
-    
-    # Pass the explicitly requested IDs and transcript path directly in the config
-    mock_dataset_config.sample_ids = ["ID1", "ID3"]
-    mock_dataset_config.transcripts_file = "dummy_transcripts.json"
-    mock_dataset_config.audio_base_dir = "data/MMAR"
-    
-    mocker.patch("os.path.exists", return_value=True)
-    mocker.patch("builtins.open", mocker.mock_open())
-    
-    # Mock json.load for transcripts
-    mocker.patch("json.load", return_value={"ID1": "Bark", "ID2": "Hello mate"})
 
-    results = load_mmar_requests(mock_dataset_config)
+def test_two_pass_puts_the_question_in_both_turns(patched_mmar, mmar_config):
+    two_pass = meta(prompt=["Locate the evidence span.", "Now answer."], presentation="two_pass_localization")
+    instruction = load_mmar_requests(mmar_config, two_pass)[0][0].instruction
 
-    # Should only return the 2 IDs we requested
-    assert_that(results).is_length(2)
-    
-    # Check ID1 (Has transcript)
-    req1, gt1 = results[0]
-    assert_that(gt1).is_equal_to("A")
-    assert isinstance(req1, __import__('speech_processing.data.dtos.requests', fromlist=['AudioRequest']).AudioRequest)
-    assert_that(req1.audio_path).is_equal_to("data/MMAR/audio/id1.wav")
-    assert_that(req1.metadata["question"]).is_equal_to("What sound is this?")
-    assert_that(req1.metadata["choices"]).is_equal_to(["Dog", "Cat"]) # Evaluated list!
-    assert_that(req1.metadata["transcript"]).is_equal_to("Bark")
-    
-    # Check ID3 (No transcript)
-    req3, gt3 = results[1]
-    assert_that(gt3).is_equal_to("A")
-    assert_that(req3.metadata["transcript"]).is_equal_to("[NO TRANSCRIPT]")
-    assert_that(req3.metadata["choices"]).is_equal_to(["Yes", "No"])
-import sys
-import os
-import pytest
-from assertpy import assert_that
-import pandas as pd
+    assert_that(instruction).is_length(2)
+    assert_that(instruction[0]).contains("Who speaks first?")
+    assert_that(instruction[1]).contains("Who speaks first?")
+    assert_that(instruction[0]).does_not_contain("Choices:")
+    assert_that(instruction[1]).contains("Choices:")
 
-from speech_processing.config.core import DatasetConfig
-from speech_processing.data.dataset import load_mmar_requests
-from speech_processing.runners.mmar import ExperimentVersion
-from speech_processing.data.dataset import load_mmar_requests
 
-def test_mmar_dynamic_prompt_injection(mocker):
-    # We want to test the string formatting logic inside load_mmar_requests
-    
-    mock_config = DatasetConfig(
-        dataset_id="test", 
-        target_labels=["A", "B"], 
-        split="test", 
-        num_samples=1, 
-        sample_ids=["1"],
-        transcripts_file="dummy_transcripts.json"
+def test_shuffled_variants_are_seeded_and_consistent(patched_mmar, mmar_config):
+    config = mmar_config.model_copy(update={"sample_ids": ["ID2"]})
+    shuffled = meta(num_shuffled_variants=5)
+
+    items = load_mmar_requests(config, shuffled)
+    assert_that(items).is_length(5)
+
+    for variant_idx, (req, ground_truth) in enumerate(items):
+        metadata = req.metadata
+        assert_that(metadata.variant_idx).is_equal_to(variant_idx)
+        assert_that([metadata.original_choices[i] for i in metadata.permutation]).is_equal_to(metadata.choices)
+        assert_that(metadata.choices[ord(ground_truth) - ord("A")]).is_equal_to("American")
+
+    assert_that(items[0][0].metadata.permutation).is_equal_to([0, 1, 2])
+
+    repeated = load_mmar_requests(config, shuffled)
+    assert_that([r.metadata.permutation for r, _ in repeated]).is_equal_to([r.metadata.permutation for r, _ in items])
+
+
+def test_answer_not_among_choices_raises(mocker, mmar_config):
+    broken = [dict(MMAR_ROWS[0]) | {"answer": "nobody"}]
+    mocker.patch("speech_processing.data.dataset._load_mmar_frame", return_value=pd.DataFrame(broken))
+    mocker.patch("speech_processing.data.dataset._load_transcripts", return_value={})
+
+    config = mmar_config.model_copy(update={"sample_ids": ["ID1"]})
+    assert_that(load_mmar_requests).raises(DatasetIntegrityError).when_called_with(config, meta())
+
+
+# --------------------------------------------------------------------------------------
+# MMAR: few-shot
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "overrides, expect_audio, answer_prefix, expect_transcript",
+    [
+        ({"few_shot_mode": "audio"}, True, "B", False),
+        ({"few_shot_mode": "text"}, False, "B", False),
+        (
+            {
+                "few_shot_mode": "audio",
+                "use_cot": True,
+                "use_transcript": True,
+                "few_shot_include_transcript": True,
+            },
+            True,
+            "<analysis>",
+            True,
+        ),
+    ],
+)
+def test_few_shot_turns(patched_mmar, mmar_config, overrides, expect_audio, answer_prefix, expect_transcript):
+    shot_ids, turns = get_mmar_few_shot_turns(mmar_config, meta(**overrides))
+
+    assert_that(shot_ids).is_equal_to([SHOT_ID])
+    assert_that(turns).is_length(1)
+    assert_that(turns[0].audio_path is not None).is_equal_to(expect_audio)
+    assert_that(turns[0].assistant_text).starts_with(answer_prefix)
+    assert_that("Transcript: oh really" in turns[0].user_text).is_equal_to(expect_transcript)
+
+
+def test_text_few_shots_keep_audio_on_the_eval_requests(patched_mmar, mmar_config):
+    text_shots = meta(few_shot_mode="text")
+    _, turns = get_mmar_few_shot_turns(mmar_config, text_shots)
+    items = load_mmar_requests(mmar_config, text_shots)
+
+    assert_that(turns[0].audio_path).is_none()
+    assert_that(items[0][0].audio_path).is_equal_to("data/MMAR/audio/id1.wav")
+
+
+@pytest.mark.parametrize(
+    "eval_ids, shot_ids, rag_mapping",
+    [
+        ({"ID1"}, {"ID1"}, None),  # a shot is also an eval item
+        ({"ID1"}, {"SHOT1"}, {"ID1": ["ID1"]}),  # RAG retrieves the query itself
+        ({"ID1", "ID2"}, {"SHOT1"}, {"ID1": ["ID2"]}),  # RAG retrieves another eval item
+    ],
+)
+def test_disjointness_violations_raise(eval_ids, shot_ids, rag_mapping):
+    assert_that(validate_few_shot_disjointness).raises(FewShotLeakageError).when_called_with(
+        eval_ids, shot_ids, rag_mapping
     )
-    
-    # Mock huggingface load_dataset to return a tiny dataframe
-    mock_df = pd.DataFrame([{
-        "id": "1",
-        "question": "What is this?",
-        "choices": "['A', 'B']",
-        "answer": "A",
-        "audio_path": "./test.wav"
-    }])
-    
-    mock_ds = mocker.MagicMock()
-    mock_ds.to_pandas.return_value = mock_df
-    mocker.patch("speech_processing.data.dataset.load_dataset", return_value=mock_ds)
-    
-    # Mock transcript reading
-    mocker.patch("os.path.exists", return_value=True)
-    mocker.patch("builtins.open", mocker.mock_open(read_data='{"1": "Hello world"}'))
-    mocker.patch("json.load", return_value={"1": "Hello world"})
-    
-    # Run with V1 (Baseline - NO TRANSCRIPT)
-    meta_v1 = ExperimentVersion.get_version("v1").value
-    items_v1 = load_mmar_requests(mock_config, experiment_meta=meta_v1)
-    req_v1, _ = items_v1[0]
-    
-    assert_that(req_v1.instruction).does_not_contain("Hello world")
-    assert_that(req_v1.instruction).contains("What is this?")
-    assert_that(req_v1.instruction).contains("A. A")
-    assert_that(req_v1.instruction).contains("B. B")
-    
-    # Run with V3 (Transcript Augmented)
-    meta_v3 = ExperimentVersion.get_version("v3").value
-    items_v3 = load_mmar_requests(mock_config, experiment_meta=meta_v3)
-    req_v3, _ = items_v3[0]
-    
-    assert_that(req_v3.instruction).contains("Hello world")
-    assert_that(req_v3.instruction).contains("Transcript: Hello world")
-    assert_that(req_v3.instruction).contains("What is this?")
-
-def test_dataset_num_samples_none(mocker, mock_dataset_config):
-    mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
-    mock_ds = mocker.MagicMock()
-    df = pd.DataFrame({
-        "instruction": ["p1", "p2", "p3", "p4", "p5"],
-        "file": ["1.wav", "2.wav", "3.wav", "4.wav", "5.wav"],
-        "label": ["COPD", "COPD", "Healthy", "Healthy", "COPD"],
-        "audio": [{"bytes": b"1"}, {"bytes": b"2"}, {"bytes": b"3"}, {"bytes": b"4"}, {"bytes": b"5"}]
-    })
-    mock_ds.cast_column.return_value = mock_ds
-    mock_ds.to_pandas.return_value = df
-    mock_load_dataset.return_value = mock_ds
-
-    # Set to None, should return all 5 valid samples
-    mock_dataset_config.num_samples = None
-    results = load_icbhi_requests(config=mock_dataset_config)
-    assert_that(results).is_length(5)
 
 
-def test_dataset_num_samples_larger_than_dataset(mocker, mock_dataset_config):
-    mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
-    mock_ds = mocker.MagicMock()
-    df = pd.DataFrame({
-        "instruction": ["p1", "p2", "p3"],
-        "file": ["1.wav", "2.wav", "3.wav"],
-        "label": ["COPD", "COPD", "Healthy"],
-        "audio": [{"bytes": b"1"}, {"bytes": b"2"}, {"bytes": b"3"}]
-    })
-    mock_ds.cast_column.return_value = mock_ds
-    mock_ds.to_pandas.return_value = df
-    mock_load_dataset.return_value = mock_ds
-
-    # Ask for 100, but only 3 exist (and no disjoint padding is possible since the whole dataset is 3)
-    # Wait, the padding logic in ICBHI samples from the inverse subset.
-    # If the total dataset has only 3 rows, it pads with up to `min(remaining, len(inverse))`.
-    # So it will just return 3!
-    mock_dataset_config.num_samples = 100
-    results = load_icbhi_requests(config=mock_dataset_config)
-    
-    assert_that(results).is_length(3)
-
-
-def test_mmar_num_samples_none_and_truncation(mocker, mock_dataset_config):
-    mock_load_dataset = mocker.patch("speech_processing.data.dataset.load_dataset")
-    mock_ds = mocker.MagicMock()
-    df = pd.DataFrame({
-        "id": ["ID1", "ID2", "ID3", "ID4"],
-        "question": ["Q", "Q", "Q", "Q"],
-        "choices": ["['A']", "['A']", "['A']", "['A']"],
-        "answer": ["A", "A", "A", "A"],
-        "audio_path": ["p1", "p2", "p3", "p4"]
-    })
-    mock_ds.to_pandas.return_value = df
-    mock_load_dataset.return_value = mock_ds
-    
-    mocker.patch("os.path.exists", return_value=False)
-
-    # Test None -> returns all 4
-    mock_dataset_config.num_samples = None
-    results = load_mmar_requests(mock_dataset_config)
-    assert_that(results).is_length(4)
-    
-    # Test 2 -> returns 2
-    mock_dataset_config.num_samples = 2
-    results = load_mmar_requests(mock_dataset_config)
-    assert_that(results).is_length(2)
-    
-    # Test 100 -> returns all 4 safely with warning
-    mock_dataset_config.num_samples = 100
-    results = load_mmar_requests(mock_dataset_config)
-    assert_that(results).is_length(4)
+def test_disjointness_passes_when_clean():
+    validate_few_shot_disjointness({"ID1", "ID2"}, {"SHOT1"}, {"ID1": ["SHOT1"], "ID2": ["SHOT1"]})

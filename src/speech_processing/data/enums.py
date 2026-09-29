@@ -1,5 +1,6 @@
-from enum import Enum
+from enum import StrEnum
 
-class DatasetType(str, Enum):
+
+class DatasetType(StrEnum):
     ICBHI = "icbhi"
     MMAR = "mmar"

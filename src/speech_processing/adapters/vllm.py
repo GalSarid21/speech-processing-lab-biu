@@ -1,79 +1,96 @@
 from typing import Any
+
 from speech_processing.adapters.base import BaseGenerationAdapter
 from speech_processing.config.core import GenerationParams
+from speech_processing.utils.consts import CONTRASTIVE_PROMPT_LOGPROBS
+from speech_processing.utils.exceptions import AudioProcessingError, ContrastiveScoringError
 
 
 class VLLMAdapter(BaseGenerationAdapter):
-    def __init__(self, **kwargs) -> None:
-        # Scoped import because vllm is not available on MacOS and would crash on import
+    def __init__(self, **kwargs: Any) -> None:
+        # Scoped import because vllm is not installable on macOS and would crash on import
         from vllm import LLM
+
         self.llm = LLM(**kwargs)
         self.tokenizer = self.llm.get_tokenizer()
 
     def generate_batch(self, prompts: list[Any], sampling_params: GenerationParams) -> list[str]:
-        # Scoped import because vllm is not available on MacOS and would crash on import
+        # Scoped import because vllm is not installable on macOS and would crash on import
         from vllm import SamplingParams
-        
-        kwargs = {
+
+        kwargs: dict[str, Any] = {
             "temperature": sampling_params.temperature,
             "top_p": sampling_params.top_p,
-            "max_tokens": sampling_params.max_new_tokens
+            "max_tokens": sampling_params.max_new_tokens,
         }
-        if hasattr(sampling_params, "stop") and sampling_params.stop:
+        if sampling_params.stop:
             kwargs["stop"] = sampling_params.stop
-        
-        vllm_params = None
+
         if sampling_params.json_schema:
-            try:
-                # 1. Try Newest API (vLLM >= 0.6.1)
-                from vllm.sampling_params import StructuredOutputsParams
-                vllm_params = SamplingParams(
-                    **kwargs, 
-                    structured_outputs=StructuredOutputsParams(json=sampling_params.json_schema)
-                )
-            except (ImportError, TypeError, ValueError):
-                try:
-                    # 2. Try Recent API (vLLM ~ 0.5.x)
-                    from vllm.sampling_params import GuidedDecodingParams
-                    vllm_params = SamplingParams(
-                        **kwargs, 
-                        guided_decoding=GuidedDecodingParams(json=sampling_params.json_schema)
-                    )
-                except (ImportError, TypeError, ValueError):
-                    # 3. Try Oldest API (vLLM < 0.5.x)
-                    vllm_params = SamplingParams(
-                        **kwargs, 
-                        guided_json=sampling_params.json_schema
-                    )
+            vllm_params = self._structured_params(SamplingParams, kwargs, sampling_params.json_schema)
         else:
             vllm_params = SamplingParams(**kwargs)
-        
-        # If the input is a list of lists (i.e. batch of OpenAI message dicts)
-        if len(prompts) > 0 and isinstance(prompts[0], list):
-            # Check if the final message is an assistant prefill
-            has_prefill = any(p[-1]["role"] == "assistant" for p in prompts)
-            try:
-                if has_prefill:
-                    # New vLLM API supports continue_final_message. We MUST pass add_generation_prompt=False 
-                    # directly at the top level because vLLM has it as a top-level arg with default=True.
-                    outputs: list[Any] = self.llm.chat(
-                        messages=prompts, 
-                        sampling_params=vllm_params, 
-                        continue_final_message=True,
-                        add_generation_prompt=False
-                    )
-                else:
-                    outputs: list[Any] = self.llm.chat(messages=prompts, sampling_params=vllm_params)
-            except TypeError:
-                # Older vLLM APIs fallback (if continue_final_message is not a valid arg)
-                if has_prefill:
-                    outputs: list[Any] = self.llm.chat(
-                        messages=prompts, 
-                        sampling_params=vllm_params, 
-                        add_generation_prompt=False
-                    )
-                else:
-                    outputs: list[Any] = self.llm.chat(messages=prompts, sampling_params=vllm_params)
+
+        if prompts and isinstance(prompts[0], list):
+            prefill_flags = {p[-1]["role"] == "assistant" for p in prompts}
+            if len(prefill_flags) > 1:
+                raise AudioProcessingError("A batch cannot mix prefilled and non-prefilled conversations.")
+            has_prefill = prefill_flags.pop()
+
+            if has_prefill:
+                # vLLM exposes add_generation_prompt as a top-level arg defaulting to True, so it must be
+                # passed explicitly alongside continue_final_message.
+                outputs: list[Any] = self.llm.chat(
+                    messages=prompts,
+                    sampling_params=vllm_params,
+                    continue_final_message=True,
+                    add_generation_prompt=False,
+                )
+            else:
+                outputs = self.llm.chat(messages=prompts, sampling_params=vllm_params)
         else:
-            outputs: list[Any] = self.llm.generate(prompts=prompts, sampling_params=vllm_params)
+            outputs = self.llm.generate(prompts=prompts, sampling_params=vllm_params)
+
         return [output.outputs[0].text for output in outputs]
+
+    @staticmethod
+    def _structured_params(sampling_params_cls: Any, kwargs: dict[str, Any], json_schema: str) -> Any:
+        try:
+            # 1. Newest API (vLLM >= 0.6.1)
+            from vllm.sampling_params import StructuredOutputsParams
+
+            return sampling_params_cls(**kwargs, structured_outputs=StructuredOutputsParams(json=json_schema))
+        except (ImportError, TypeError, ValueError):
+            try:
+                # 2. Recent API (vLLM ~ 0.5.x)
+                from vllm.sampling_params import GuidedDecodingParams
+
+                return sampling_params_cls(**kwargs, guided_decoding=GuidedDecodingParams(json=json_schema))
+            except (ImportError, TypeError, ValueError):
+                # 3. Oldest API (vLLM < 0.5.x)
+                return sampling_params_cls(**kwargs, guided_json=json_schema)
+
+    def score_last_prompt_token(self, conversations: list[Any]) -> list[tuple[int, float]]:
+        """Returns (token_id, logprob) of the final prompt token of each already-completed conversation."""
+        # Scoped import because vllm is not installable on macOS and would crash on import
+        from vllm import SamplingParams
+
+        params = SamplingParams(max_tokens=1, prompt_logprobs=CONTRASTIVE_PROMPT_LOGPROBS)
+        outputs = self.llm.chat(
+            messages=conversations,
+            sampling_params=params,
+            add_generation_prompt=False,
+            continue_final_message=True,
+        )
+
+        scored: list[tuple[int, float]] = []
+        for output in outputs:
+            token_id = output.prompt_token_ids[-1]
+            position = output.prompt_logprobs[-1] if output.prompt_logprobs else None
+            if not position or token_id not in position:
+                raise ContrastiveScoringError(f"vLLM returned no log-prob for the final prompt token {token_id}.")
+            scored.append((token_id, position[token_id].logprob))
+        return scored
+
+    def decode_token(self, token_id: int) -> str:
+        return self.tokenizer.decode([token_id])

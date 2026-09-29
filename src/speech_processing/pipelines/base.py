@@ -1,6 +1,8 @@
 import gc
+
 import torch
 from loguru import logger
+
 
 def release_vram():
     """Explicitly garbage collect and empty the CUDA cache."""

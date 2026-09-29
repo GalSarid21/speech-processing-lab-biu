@@ -1,5 +1,6 @@
 from speech_processing.data.dtos import JudgeRequest
 
+
 def build_icbhi_judge_conversation(req: JudgeRequest) -> list[dict[str, str]]:
     system_content = (
         "You are an expert evaluator for machine learning audio-to-text models. "
@@ -9,7 +10,7 @@ def build_icbhi_judge_conversation(req: JudgeRequest) -> list[dict[str, str]]:
         "The ICBHI 2017 dataset contains specific labels.\n"
         '- Cycle-level acoustic classes: "Normal", "Crackle", "Wheeze", "Both" (Crackle and Wheeze).\n'
         '- Patient-level diagnosis classes: "COPD", "Healthy", "URTI", "Bronchiectasis", "Pneumonia", "Bronchiolitis".\n\n'
-        "### Task"
+        "### Task\n"
         "You will be provided with a Ground Truth Label and a Model Answer. You must evaluate the Model Answer across multiple dimensions:\n"
         "- Acoustic Accuracy (0-10): Did it correctly identify the acoustic features (crackles/wheezes) described?\n"
         "- Diagnostic Accuracy (0-10): Did it correctly deduce the patient-level pathology (e.g. COPD, Healthy)?\n"
@@ -26,11 +27,7 @@ def build_icbhi_judge_conversation(req: JudgeRequest) -> list[dict[str, str]]:
         "}"
     )
 
-    user_content = (
-        f"### Inputs\n"
-        f"Ground Truth Label: {req.ground_truth}\n"
-        f"Model Answer: {req.generated_text}\n"
-    )
+    user_content = f"### Inputs\nGround Truth Label: {req.ground_truth}\nModel Answer: {req.generated_text}\n"
 
     return [
         {"role": "system", "content": system_content},
@@ -39,28 +36,51 @@ def build_icbhi_judge_conversation(req: JudgeRequest) -> list[dict[str, str]]:
 
 
 def build_mmar_judge_conversation(req: JudgeRequest) -> list[dict[str, str]]:
+    """The MMAR judge only EXTRACTS the chosen letter; correctness is computed in code."""
     system_content = (
-        "You are an expert evaluator. Your task is to judge the output of a multimodal model "
-        "evaluating multiple-choice questions on the BoJack/MMAR dataset.\n\n"
+        "You are an answer extractor for a multiple-choice audio reasoning benchmark.\n\n"
         "### Task\n"
-        "You will be provided with the Prompt (Question + Choices), the Ground Truth Answer, and the Model Answer.\n"
-        "Your job is to read the Model Answer, extract the FINAL selected choice, and determine if it matches the Ground Truth Answer.\n\n"
+        "You will be given the prompt that was shown to a model (question and lettered choices) and "
+        "that model's answer. Output the letter of the choice the model finally selected.\n\n"
         "### Guidelines\n"
-        "1. Focus only on the final answer. If the model reasoning is incorrect but the final choice is correct, it is correct.\n"
-        "2. The model may output a full reasoning chain. Look for explicit markers like \"Correct choice:\" or the final sentence.\n"
-        "3. You must output a JSON object matching the requested schema.\n"
+        "1. Use only the model's final answer. Ignore any earlier reasoning it later revised.\n"
+        "2. If the model wrote the text of a choice instead of a letter, output that choice's letter.\n"
+        '3. If the model selected no choice, or more than one, output "Unknown".\n'
+        "4. Do not judge whether the answer is right. Only extract it.\n"
+        "5. You must output a JSON object matching the requested schema.\n"
     )
-    
+
     user_content = (
-        f"--- PROMPT ---\n"
-        f"{req.instruction}\n\n"
-        f"--- GROUND TRUTH ---\n"
-        f"{req.ground_truth}\n\n"
-        f"--- MODEL ANSWER ---\n"
-        f"{req.generated_text}\n"
+        f"--- PROMPT ---\n{req.instruction}\n\n--- MODEL ANSWER ---\n{req.final_turn_text or req.generated_text}\n"
     )
-    
+
     return [
         {"role": "system", "content": system_content},
-        {"role": "user", "content": user_content}
+        {"role": "user", "content": user_content},
+    ]
+
+
+def build_icbhi_choice_judge_conversation(req: JudgeRequest) -> list[dict[str, str]]:
+    """ICBHI closed-set extraction. Like the MMAR judge, it extracts a letter and never scores."""
+    system_content = (
+        "You are an answer extractor for a closed-set lung auscultation diagnosis benchmark.\n\n"
+        "### Task\n"
+        "You will be given the prompt that was shown to a model (the diagnosis options, lettered) and that "
+        "model's answer. Output the letter of the option the model finally selected.\n\n"
+        "### Guidelines\n"
+        "1. Use only the model's final answer. Ignore any earlier reasoning it later revised.\n"
+        "2. If the model named a diagnosis instead of a letter, output that option's letter.\n"
+        '3. If the model named a condition that is not among the options, output "Unknown".\n'
+        '4. If the model selected no option, or more than one, output "Unknown".\n'
+        "5. Do not judge whether the answer is right. Only extract it.\n"
+        "6. You must output a JSON object matching the requested schema.\n"
+    )
+
+    user_content = (
+        f"--- PROMPT ---\n{req.instruction}\n\n--- MODEL ANSWER ---\n{req.final_turn_text or req.generated_text}\n"
+    )
+
+    return [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_content},
     ]

@@ -3,15 +3,24 @@ from collections.abc import Callable
 
 from loguru import logger
 
-
 from speech_processing.adapters.vllm import VLLMAdapter
-from speech_processing.config.core import JudgeConfig, GenerationParams
-from speech_processing.data.dtos import EvaluationResult, JudgeRequest, JudgeResponse
+from speech_processing.config.core import GenerationParams, JudgeConfig
+from speech_processing.data.dtos import (
+    ChoiceExtractionResult,
+    EvaluationResult,
+    JudgeRequest,
+    JudgeResponse,
+)
 from speech_processing.models.base import BaseJudgeModel
 
 
 class QwenJudge(BaseJudgeModel):
-    def __init__(self, config: JudgeConfig, template_func: Callable[[JudgeRequest], list[dict[str, str]]], schema_class: type = EvaluationResult) -> None:
+    def __init__(
+        self,
+        config: JudgeConfig,
+        template_func: Callable[[JudgeRequest], list[dict[str, str]]],
+        schema_class: type[EvaluationResult] | type[ChoiceExtractionResult] = EvaluationResult,
+    ) -> None:
         self.config = config
         self.template_func = template_func
         self.schema_class = schema_class
@@ -35,48 +44,40 @@ class QwenJudge(BaseJudgeModel):
         prompts = []
         for req in requests:
             conversation = self.template_func(req)
-            prompt_str = self.tokenizer.apply_chat_template(
-                conversation, add_generation_prompt=True, tokenize=False
-            )
+            prompt_str = self.tokenizer.apply_chat_template(conversation, add_generation_prompt=True, tokenize=False)
             prompts.append(prompt_str)
 
-        logger.info(
-            f"Evaluating batch of size {len(requests)} with guided JSON decoding..."
-        )
+        logger.info(f"Evaluating batch of size {len(requests)} with guided JSON decoding...")
 
         schema_str = json.dumps(self.schema_class.model_json_schema())
         sampling_params = GenerationParams(
-            temperature=0.0,
-            top_p=1.0,
-            max_new_tokens=self.config.max_new_tokens,
-            json_schema=schema_str
+            temperature=0.0, top_p=1.0, max_new_tokens=self.config.max_new_tokens, json_schema=schema_str
         )
 
         try:
-            generated_texts = self.adapter.generate_batch(
-                prompts=prompts, sampling_params=sampling_params
-            )
+            generated_texts = self.adapter.generate_batch(prompts=prompts, sampling_params=sampling_params)
         except RuntimeError as e:
             logger.error(f"vLLM batch generation failed: {e}")
             return []
 
         responses = []
-        for req, output_text in zip(requests, generated_texts):
+        for req, output_text in zip(requests, generated_texts, strict=True):
             try:
                 evaluation = self.schema_class.model_validate_json(output_text)
             except ValueError as e:
-                logger.error(
-                    f"Failed to parse JSON for request. Raw output: {output_text}. Error: {e}"
-                )
+                logger.error(f"Failed to parse JSON for request. Raw output: {output_text}. Error: {e}")
                 evaluation = self.schema_class.fallback()
 
-            responses.append(JudgeResponse(
-                sample_id=req.sample_id,
-                instruction=req.instruction,
-                generated_text=req.generated_text,
-                ground_truth=req.ground_truth,
-                evaluation=evaluation,
-                metadata=req.metadata
-            ))
+            responses.append(
+                JudgeResponse(
+                    sample_id=req.sample_id,
+                    instruction=req.instruction,
+                    generated_text=req.generated_text,
+                    ground_truth=req.ground_truth,
+                    final_turn_text=req.final_turn_text,
+                    evaluation=evaluation,
+                    metadata=req.metadata,
+                )
+            )
 
         return responses

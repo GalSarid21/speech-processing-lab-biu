@@ -1,41 +1,55 @@
 [project]
-name = "speech_processing"
-version = "0.1.0"
-description = "Add your description here"
+name = "speech-processing-lab-biu"
+version = "0.2.0"
+description = "Speech processing lab: ICBHI respiratory diagnostics and MMAR audio reasoning pipelines."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
-    "accelerate>=1.14.0",
-    "datasets>=5.0.1",
-    "ipython>=9.17.1",
-    "kernels>=0.17.1",
-    "librosa>=1.0.0",
-    "loguru>=0.7.3",
-    "matplotlib>=3.11.1",
-    "nbformat>=5.11.1",
-    "openai-whisper>=20250625",
-    "pandas>=3.0.5",
-    "pyannote-audio>=4.0.7",
-    "pydantic>=2.13.4",
-    "pyyaml>=6.0.3",
-    "scikit-learn>=1.9.0",
-    "seaborn>=0.13.2",
-    "sentence-transformers>=6.1.0",
-    "soundfile>=0.14.0",
-    "torch>=2.13.0",
-    "torchcodec>=0.16.0",
-    "transformers>=5.15.0",
-    "vllm>=0.4.0; sys_platform == 'linux'",
+    "datasets>=3.0.0",
+    "librosa>=0.10.2",
+    "loguru>=0.7.2",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "pydantic>=2.9",
+    "pyyaml>=6.0",
+    "scikit-learn>=1.5",
+    "scipy>=1.14",
+    "soundfile>=0.12.1",
+    "tabulate>=0.9.0",
+    "torch>=2.4",
+    "tqdm>=4.66",
+    "transformers>=4.45",
 ]
-
-[build-system]
-requires = ["uv_build>=0.12.5,<0.13.0"]
-build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
     "assertpy>=1.1",
-    "pytest>=9.1.1",
-    "pytest-mock>=3.15.1",
-    "ruff>=0.16.3",
+    "pytest>=8.3",
+    "pytest-mock>=3.14",
+    "ruff>=0.7",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/speech_processing"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "PL", "RUF"]
+ignore = ["E501", "PLR0913", "PLR2004", "PLR0912", "PLR0915", "PLR0911"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "PLR0917"]
+# vllm is not installable on macOS, so it is the one library imported inside functions.
+"src/speech_processing/adapters/vllm.py" = ["PLC0415"]
+"src/speech_processing/models/text.py" = ["PLC0415"]

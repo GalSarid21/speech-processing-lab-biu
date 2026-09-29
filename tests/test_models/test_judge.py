@@ -1,21 +1,31 @@
 import json
-import sys
 
 import pytest
 from assertpy import assert_that
 
-
-
 from speech_processing.config.core import JudgeConfig
-from speech_processing.data.dtos import JudgeRequest
+from speech_processing.data.dtos import EvaluationResult, ItemMetadata, JudgeRequest, MMAREvaluationResult
 from speech_processing.models.judge import QwenJudge
 from speech_processing.prompts.templates.judge.qwen import (
     build_icbhi_judge_conversation,
+    build_mmar_judge_conversation,
 )
+from speech_processing.utils.consts import UNPARSED_CHOICE
+
+ICBHI_JSON = json.dumps(
+    {
+        "reasoning": "Clear sounds.",
+        "acoustic_accuracy": 9,
+        "diagnostic_accuracy": 9,
+        "hallucination_penalty": 0,
+        "extracted_class": "COPD",
+    }
+)
+MMAR_JSON = json.dumps({"reasoning": "It picked B.", "extracted_choice": "B"})
 
 
 @pytest.fixture
-def mock_judge_config():
+def judge_config():
     return JudgeConfig(
         model_id="mock/judge",
         dtype="auto",
@@ -26,60 +36,40 @@ def mock_judge_config():
     )
 
 
-def test_judge_batch_evaluate_success(mocker, mock_judge_config):
-    mocker.patch("speech_processing.models.judge.VLLMAdapter")
-    mock_vllm_class = mocker.patch("speech_processing.models.judge.VLLMAdapter")
-    
-    # Setup mock LLM and Adapter
-    mock_adapter = mock_vllm_class.return_value
-    
-    # Simulate a perfect JSON response from vLLM
-    valid_json = json.dumps({
-        "reasoning": "Clear sounds.",
-        "acoustic_accuracy": 9,
-        "diagnostic_accuracy": 9,
-        "hallucination_penalty": 0,
-        "extracted_class": "COPD"
-    })
-    mock_adapter.generate_batch.return_value = [valid_json]
-
-    template = build_icbhi_judge_conversation
-    judge = QwenJudge(config=mock_judge_config, template_func=template)
-
-    requests = [JudgeRequest(sample_id="test_id", instruction="prompt", generated_text="answer", ground_truth="COPD")]
-    responses = judge.batch_evaluate(requests)
-
-    assert_that(responses).is_length(1)
-    
-    eval_obj = responses[0].evaluation
-    assert isinstance(eval_obj, __import__('speech_processing.data.dtos.responses', fromlist=['EvaluationResult']).EvaluationResult)
-    assert_that(eval_obj.acoustic_accuracy).is_equal_to(9)
-    assert_that(eval_obj.extracted_class).is_equal_to("COPD")
-    
-    # Ensure adapter was called correctly
-    mock_adapter.generate_batch.assert_called_once()
+@pytest.fixture
+def judge_request():
+    return JudgeRequest(
+        sample_id="test_id",
+        instruction="prompt",
+        generated_text="Turn 1 ... Turn 2 ... B",
+        final_turn_text="B",
+        ground_truth="B",
+        metadata=ItemMetadata(item_id="ID1", question="q", choices=["Dog", "Cat"]),
+    )
 
 
-def test_judge_batch_evaluate_json_fallback(mocker, mock_judge_config):
-    mocker.patch("speech_processing.models.judge.VLLMAdapter")
-    mock_vllm_class = mocker.patch("speech_processing.models.judge.VLLMAdapter")
-    mock_adapter = mock_vllm_class.return_value
-    
-    # Simulate garbage string from vLLM (e.g. if guided_json fails or model hallucinates text)
-    mock_adapter.generate_batch.return_value = ["This is not JSON!"]
+@pytest.mark.parametrize(
+    "template, schema, raw_output, expected_field, expected_value",
+    [
+        (build_icbhi_judge_conversation, EvaluationResult, ICBHI_JSON, "extracted_class", "COPD"),
+        (build_icbhi_judge_conversation, EvaluationResult, "not json", "extracted_class", UNPARSED_CHOICE),
+        (build_mmar_judge_conversation, MMAREvaluationResult, MMAR_JSON, "extracted_choice", "B"),
+        (build_mmar_judge_conversation, MMAREvaluationResult, "not json", "extracted_choice", UNPARSED_CHOICE),
+    ],
+)
+def test_judge_parses_or_falls_back(
+    mocker, judge_config, judge_request, template, schema, raw_output, expected_field, expected_value
+):
+    adapter = mocker.patch("speech_processing.models.judge.VLLMAdapter").return_value
+    adapter.generate_batch.return_value = [raw_output]
 
-    template = build_icbhi_judge_conversation
-    judge = QwenJudge(config=mock_judge_config, template_func=template)
-
-    requests = [JudgeRequest(sample_id="test_id", instruction="prompt", generated_text="answer", ground_truth="COPD")]
-    responses = judge.batch_evaluate(requests)
+    judge = QwenJudge(judge_config, template_func=template, schema_class=schema)
+    responses = judge.batch_evaluate([judge_request])
 
     assert_that(responses).is_length(1)
-    
-    # It should seamlessly fallback without crashing!
-    eval_obj = responses[0].evaluation
-    assert_that(eval_obj.reasoning).is_equal_to("Parse failed.")
-    assert isinstance(eval_obj, __import__('speech_processing.data.dtos.responses', fromlist=['EvaluationResult']).EvaluationResult)
-    assert_that(eval_obj.acoustic_accuracy).is_equal_to(0)
-    assert_that(eval_obj.hallucination_penalty).is_equal_to(1)
-    assert_that(eval_obj.extracted_class).is_equal_to("Unknown")
+    assert_that(responses[0].evaluation).is_instance_of(schema)
+    assert_that(getattr(responses[0].evaluation, expected_field)).is_equal_to(expected_value)
+    assert_that(responses[0].final_turn_text).is_equal_to("B")
+
+    sent_schema = json.loads(adapter.generate_batch.call_args.kwargs["sampling_params"].json_schema)
+    assert_that(sent_schema["properties"]).is_equal_to(schema.model_json_schema()["properties"])

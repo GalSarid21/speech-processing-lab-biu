@@ -1,5 +1,9 @@
-from pydantic import BaseModel, Field
 import json
+
+from pydantic import BaseModel, Field
+
+from speech_processing.data.dtos.metadata import ItemMetadata
+from speech_processing.utils.exceptions import SpeechProcessingError
 
 
 class FewShotTurn(BaseModel):
@@ -14,7 +18,7 @@ class BaseRequest(BaseModel):
     assistant_prefill: str | None = None
     system_prompt: str | None = None
     few_shot_turns: list[FewShotTurn] = Field(default_factory=list)
-    metadata: dict = Field(default_factory=dict)
+    metadata: ItemMetadata | None = None
 
 
 class AudioRequest(BaseRequest):
@@ -22,22 +26,21 @@ class AudioRequest(BaseRequest):
     audio_bytes: bytes | None = None
 
 
-class JudgeRequestParseError(Exception):
+class JudgeRequestParseError(SpeechProcessingError):
     """Raised when a JudgeRequest fails to parse from JSON."""
-    pass
+
 
 class JudgeRequest(BaseRequest):
     sample_id: str
     generated_text: str
     ground_truth: str
-    metadata: dict = Field(default_factory=dict)
+    final_turn_text: str | None = None
 
     @classmethod
-    def from_json(cls, json_str: str) -> 'JudgeRequest':
+    def from_json(cls, json_str: str) -> "JudgeRequest":
         try:
-            data = json.loads(json_str)
-            return cls(**data)
-        except (json.JSONDecodeError, ValueError) as e:
+            return cls(**json.loads(json_str))
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
             raise JudgeRequestParseError(f"Failed to parse JudgeRequest from JSON: {json_str}") from e
 
 

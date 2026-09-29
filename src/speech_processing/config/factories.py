@@ -1,170 +1,234 @@
 import json
 import os
+
 from loguru import logger
 
-from speech_processing.utils.consts import DEFAULT_SAMPLING_RATE, COT_START_TAG, COT_END_TAG, ANSWER_START_TAG, ANSWER_END_TAG
 from speech_processing.config.core import (
-    AppConfig, 
-    DatasetConfig, 
-    TextModelConfig, 
-    AudioModelConfig, 
+    AppConfig,
+    AudioModelConfig,
+    DatasetConfig,
     ExperimentMeta,
-    JudgeConfig
+    JudgeConfig,
+    TextModelConfig,
 )
+from speech_processing.utils.consts import DEFAULT_SAMPLING_RATE
+
+GEMMA_MODEL_ID = "google/gemma-4-26B-A4B-it"
+VOXTRAL_MODEL_ID = "mistralai/Voxtral-Small-24B-2507"
+QWEN_AUDIO_MODEL_ID = "Qwen/Qwen2-Audio-7B-Instruct"
+JUDGE_MODEL_ID = "Qwen/Qwen3.8-27B-FP8"
+
+DEFAULT_MAX_MODEL_LEN = 8192
+DEFAULT_GPU_PCT = 0.95
+DEFAULT_MAX_SEQS = 256
+DEFAULT_TEXT_MAX_NEW_TOKENS = 512
+DEFAULT_AUDIO_MAX_NEW_TOKENS = 256
+JUDGE_MAX_NEW_TOKENS = 512
+JUDGE_MAX_NUM_SEQS = 64
+
+ICBHI_DATASET_ID = "DynamicSuperb/RespiratorySoundClassification_ICBHI2017"
+ICBHI_SPLIT = "test"
+ICBHI_AUDIO_BASE_DIR = "data/ICBHI"
+ICBHI_RESPIRATORY_FEATURES_FILE = "data/icbhi_respiratory_features.jsonl"
+ICBHI_AUDIO_TAGS_FILE = "data/icbhi_audio_tags.jsonl"
+ICBHI_NEIGHBOR_LABELS_FILE = "data/icbhi_neighbor_labels.json"
+ICBHI_RAG_MAPPING_FILE = "data/icbhi_rag_mapping.json"
+ICBHI_NEAR_DUPLICATES_FILE = "data/icbhi_near_duplicates.json"
+
+MMAR_DATASET_ID = "BoJack/MMAR"
+MMAR_SPLIT = "test"
+MMAR_AUDIO_BASE_DIR = "data/MMAR"
+MMAR_TRANSCRIPTS_FILE = "data/mmar_transcripts.json"
+MMAR_FEW_SHOT_IDS_FILE = "data/mmar_en_speech_few_shot_ids.txt"
+MMAR_ACOUSTIC_FEATURES_FILE = "data/mmar_acoustic_features.jsonl"
+
+SAMPLE_ID_JSONL_KEY = "sample_id"
+
 
 def _parse_sample_ids(sample_ids_file: str | None) -> list[str]:
     if not sample_ids_file:
         logger.warning("No sample IDs file provided.")
         return []
-    
-    sample_ids = []
-    if os.path.exists(sample_ids_file):
-        logger.info(f"Loading reference sample IDs from {sample_ids_file}")
-        
-        try:
-            with open(sample_ids_file, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if sample_ids_file.endswith(".jsonl"):
-                        data = json.loads(line)
-                        sample_ids.append(data["sample_id"])
-                    else:
-                        sample_ids.append(line)
-        except FileNotFoundError:
-            logger.error(f"Sample IDs file not found: {sample_ids_file}")
-            
-        except json.JSONDecodeError:
-            logger.error(f"Sample IDs file is not valid JSON: {sample_ids_file}")
-        
-        except OSError as e:
-            logger.error(f"An error occurred while loading sample IDs from {sample_ids_file}: {e}")
 
-    else:
+    if not os.path.exists(sample_ids_file):
         logger.warning(f"Sample IDs file not found: {sample_ids_file}")
-        
-    
+        return []
+
+    logger.info(f"Loading reference sample IDs from {sample_ids_file}")
+    sample_ids: list[str] = []
+    try:
+        with open(sample_ids_file) as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                if sample_ids_file.endswith(".jsonl"):
+                    sample_ids.append(json.loads(line)[SAMPLE_ID_JSONL_KEY])
+                else:
+                    sample_ids.append(line)
+    except json.JSONDecodeError:
+        logger.error(f"Sample IDs file is not valid JSON: {sample_ids_file}")
+    except OSError as e:
+        logger.error(f"An error occurred while loading sample IDs from {sample_ids_file}: {e}")
+
     return sample_ids
-    
 
 
-def create_gemma_config(max_num_seqs: int = 256, max_new_tokens: int = 512, gpu_pct: float = 0.95) -> TextModelConfig:
+def create_gemma_config(
+    max_num_seqs: int = DEFAULT_MAX_SEQS,
+    max_new_tokens: int = DEFAULT_TEXT_MAX_NEW_TOKENS,
+    gpu_pct: float = DEFAULT_GPU_PCT,
+    stop: list[str] | None = None,
+) -> TextModelConfig:
     return TextModelConfig(
-        model_id="google/gemma-4-26B-A4B-it",
+        model_id=GEMMA_MODEL_ID,
         dtype="bfloat16",
         max_num_seqs=max_num_seqs,
         max_new_tokens=max_new_tokens,
-        max_model_len=8192,
+        max_model_len=DEFAULT_MAX_MODEL_LEN,
         gpu_memory_utilization=gpu_pct,
         temperature=1.0,
         top_p=0.95,
         top_k=64,
         enable_thinking=True,
+        stop=stop,
     )
 
-def create_voxtral_config(max_num_seqs: int = 256, max_new_tokens: int = 256, gpu_pct: float = 0.95) -> AudioModelConfig:
+
+def create_voxtral_config(
+    max_num_seqs: int = DEFAULT_MAX_SEQS,
+    max_new_tokens: int = DEFAULT_AUDIO_MAX_NEW_TOKENS,
+    gpu_pct: float = DEFAULT_GPU_PCT,
+    stop: list[str] | None = None,
+) -> AudioModelConfig:
     return AudioModelConfig(
-        model_id="mistralai/Voxtral-Small-24B-2507",
+        model_id=VOXTRAL_MODEL_ID,
         dtype="bfloat16",
         max_num_seqs=max_num_seqs,
         max_new_tokens=max_new_tokens,
-        max_model_len=8192,
+        max_model_len=DEFAULT_MAX_MODEL_LEN,
         gpu_memory_utilization=gpu_pct,
         temperature=0.5,
         top_p=0.5,
         target_sr=DEFAULT_SAMPLING_RATE,
+        stop=stop,
     )
 
-def create_qwen_audio_config(max_num_seqs: int = 256, max_new_tokens: int = 256, gpu_pct: float = 0.95) -> AudioModelConfig:
+
+def create_qwen_audio_config(
+    max_num_seqs: int = DEFAULT_MAX_SEQS,
+    max_new_tokens: int = DEFAULT_AUDIO_MAX_NEW_TOKENS,
+    gpu_pct: float = DEFAULT_GPU_PCT,
+    stop: list[str] | None = None,
+) -> AudioModelConfig:
     return AudioModelConfig(
-        model_id="Qwen/Qwen2-Audio-7B-Instruct",
+        model_id=QWEN_AUDIO_MODEL_ID,
         dtype="bfloat16",
         max_num_seqs=max_num_seqs,
         max_new_tokens=max_new_tokens,
-        max_model_len=8192,
+        max_model_len=DEFAULT_MAX_MODEL_LEN,
         gpu_memory_utilization=gpu_pct,
         temperature=0.5,
         top_p=0.5,
         target_sr=DEFAULT_SAMPLING_RATE,
+        stop=stop,
     )
+
 
 def create_judge_config() -> JudgeConfig:
     return JudgeConfig(
-        model_id="Qwen/Qwen3.8-27B-FP8",
+        model_id=JUDGE_MODEL_ID,
         dtype="auto",
-        max_num_seqs=64,
-        max_new_tokens=512,
-        max_model_len=8192,
-        gpu_memory_utilization=0.95,
+        max_num_seqs=JUDGE_MAX_NUM_SEQS,
+        max_new_tokens=JUDGE_MAX_NEW_TOKENS,
+        max_model_len=DEFAULT_MAX_MODEL_LEN,
+        gpu_memory_utilization=DEFAULT_GPU_PCT,
     )
+
 
 def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
     """Factory for creating a fully initialized ICBHI configuration."""
-    gpu_pct = getattr(args, "gpu_pct", 0.95)
+    gpu_pct = getattr(args, "gpu_pct", DEFAULT_GPU_PCT)
+    max_seqs = getattr(args, "max_seqs", DEFAULT_MAX_SEQS)
+
     dataset_config = DatasetConfig(
-        dataset_id="DynamicSuperb/RespiratorySoundClassification_ICBHI2017",
-        target_labels=["COPD", "No potential disease detected", "Healthy"],
-        split="test",
+        dataset_id=ICBHI_DATASET_ID,
+        # The label set is closed and lives in data/icbhi.py, so no target-label filter is needed.
+        target_labels=[],
+        split=ICBHI_SPLIT,
         num_samples=args.num_samples,
-        sample_ids=_parse_sample_ids(args.sample_ids_file)
+        sample_ids=_parse_sample_ids(args.sample_ids_file),
+        audio_base_dir=ICBHI_AUDIO_BASE_DIR,
+        respiratory_features_file=ICBHI_RESPIRATORY_FEATURES_FILE,
+        audio_tags_file=ICBHI_AUDIO_TAGS_FILE,
+        neighbor_labels_file=ICBHI_NEIGHBOR_LABELS_FILE,
+        near_duplicates_file=ICBHI_NEAR_DUPLICATES_FILE,
     )
-    
-    kwargs = {
-        "output_dir": args.output_dir,
-        "dataset": dataset_config,
-        "judge": create_judge_config(),
-    }
-    
-    # Explicitly attach the Voxtral config for ICBHI experiments
-    kwargs["audio_model"] = create_voxtral_config(
-        max_num_seqs=getattr(args, "max_seqs", 256),
-        max_new_tokens=getattr(experiment_meta, "max_new_tokens", 256),
-            gpu_pct=gpu_pct
+
+    text_model = None
+    audio_model = None
+    if experiment_meta.text_only:
+        text_model = create_gemma_config(
+            max_num_seqs=max_seqs,
+            max_new_tokens=experiment_meta.max_new_tokens,
+            gpu_pct=gpu_pct,
+            stop=experiment_meta.stop,
+        )
+    else:
+        audio_model = create_voxtral_config(
+            max_num_seqs=max_seqs,
+            max_new_tokens=experiment_meta.max_new_tokens,
+            gpu_pct=gpu_pct,
+            stop=experiment_meta.stop,
+        )
+
+    return AppConfig(
+        output_dir=args.output_dir,
+        dataset=dataset_config,
+        judge=create_judge_config(),
+        text_model=text_model,
+        audio_model=audio_model,
     )
-    
-    return AppConfig(**kwargs)
+
 
 def create_mmar_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
     """Factory for creating a fully initialized MMAR configuration."""
+    gpu_pct = getattr(args, "gpu_pct", DEFAULT_GPU_PCT)
+    max_seqs = getattr(args, "max_seqs", DEFAULT_MAX_SEQS)
+
     dataset_config = DatasetConfig(
-        dataset_id="BoJack/MMAR",
+        dataset_id=MMAR_DATASET_ID,
         target_labels=[],
-        split="test",
+        split=MMAR_SPLIT,
         num_samples=args.num_samples,
         sample_ids=_parse_sample_ids(args.sample_ids_file),
-        audio_base_dir="data/MMAR",
-        transcripts_file="data/mmar_transcripts.json",
-        few_shot_ids_file="data/mmar_en_speech_few_shot_ids.txt"
+        audio_base_dir=MMAR_AUDIO_BASE_DIR,
+        transcripts_file=MMAR_TRANSCRIPTS_FILE,
+        few_shot_ids_file=MMAR_FEW_SHOT_IDS_FILE,
+        acoustic_features_file=MMAR_ACOUSTIC_FEATURES_FILE,
     )
-    
-    kwargs = {
-        "output_dir": args.output_dir,
-        "dataset": dataset_config,
-        "judge": create_judge_config(),
-    }
-    
-    gpu_pct = getattr(args, "gpu_pct", 0.95)
-    is_text_only = getattr(experiment_meta, "experiment_name", "") == "text_only_llm"
-    if is_text_only:
-        kwargs["text_model"] = create_gemma_config(
-            max_num_seqs=getattr(args, "max_seqs", 256),
-            max_new_tokens=getattr(experiment_meta, "max_new_tokens", 512),
-            gpu_pct=gpu_pct
+
+    text_model = None
+    audio_model = None
+    if experiment_meta.text_only:
+        text_model = create_gemma_config(
+            max_num_seqs=max_seqs,
+            max_new_tokens=experiment_meta.max_new_tokens,
+            gpu_pct=gpu_pct,
+            stop=experiment_meta.stop,
         )
     else:
-        audio_config = create_voxtral_config(
-            max_num_seqs=getattr(args, "max_seqs", 256),
-            max_new_tokens=getattr(experiment_meta, "max_new_tokens", 256),
-            gpu_pct=gpu_pct
+        audio_model = create_voxtral_config(
+            max_num_seqs=max_seqs,
+            max_new_tokens=experiment_meta.max_new_tokens,
+            gpu_pct=gpu_pct,
+            stop=experiment_meta.stop,
         )
-        if experiment_meta.few_shot_mode == "rag":
-            audio_config.stop = ["\n\nQuestion:", "\nQuestion:"]
-            
-        audio_config.chunked_audio = getattr(experiment_meta, "chunked_audio", False)
-        audio_config.two_pass_localization = getattr(experiment_meta, "two_pass_localization", False)
-        audio_config.contrastive_alpha = getattr(experiment_meta, "contrastive_alpha", 0.0)
-            
-        kwargs["audio_model"] = audio_config
-    
-    return AppConfig(**kwargs)
+
+    return AppConfig(
+        output_dir=args.output_dir,
+        dataset=dataset_config,
+        judge=create_judge_config(),
+        text_model=text_model,
+        audio_model=audio_model,
+    )

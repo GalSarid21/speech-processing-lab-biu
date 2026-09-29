@@ -1,13 +1,15 @@
 import argparse
-import os
 import json
-import torch
+import os
+
 import librosa
 import numpy as np
+import torch
 import yaml
-from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from datasets import load_dataset
+from loguru import logger
 from tqdm import tqdm
+from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
 
 def audio_generator(items: list[dict], target_sr: int, path_col: str):
@@ -15,8 +17,8 @@ def audio_generator(items: list[dict], target_sr: int, path_col: str):
         try:
             audio, sr = librosa.load(item[path_col], sr=target_sr)
             yield {"raw": audio, "sampling_rate": sr}
-        except Exception as e:
-            print(f"Error loading {item[path_col]}: {e}")
+        except (OSError, ValueError, RuntimeError) as e:
+            logger.error(f"Error loading {item[path_col]}: {e}")
             yield {"raw": np.zeros(target_sr), "sampling_rate": target_sr}
 
 
@@ -26,10 +28,10 @@ def main():
     args = parser.parse_args()
 
     if not os.path.exists(args.config):
-        print(f"Config file {args.config} not found.")
+        logger.error(f"Config file {args.config} not found.")
         return
 
-    with open(args.config, "r") as f:
+    with open(args.config) as f:
         config = yaml.safe_load(f)
 
     # Extract configuration sections
@@ -46,21 +48,21 @@ def main():
     target_ids = set()
     for f_path in target_ids_files:
         if os.path.exists(f_path):
-            with open(f_path, "r") as f:
+            with open(f_path) as f:
                 target_ids.update(line.strip() for line in f if line.strip())
 
     if not target_ids:
-        print(f"No target IDs found. Check if your target_ids_files exist.")
+        logger.error("No target IDs found. Check if your target_ids_files exist.")
         return
 
-    print(f"Loaded {len(target_ids)} target IDs.")
+    logger.info(f"Loaded {len(target_ids)} target IDs.")
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
     model_id = model_conf.get("id", "openai/whisper-large-v3")
-    print(f"Loading {model_id} onto {device} in {torch_dtype}...")
-    
+    logger.info(f"Loading {model_id} onto {device} in {torch_dtype}...")
+
     model = AutoModelForSpeechSeq2Seq.from_pretrained(
         model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True
     )
@@ -74,63 +76,60 @@ def main():
         feature_extractor=processor.feature_extractor,
         torch_dtype=torch_dtype,
         device=device,
-        model_kwargs={"attn_implementation": model_conf.get("attention_impl", "sdpa")}, 
+        model_kwargs={"attn_implementation": model_conf.get("attention_impl", "sdpa")},
         chunk_length_s=model_conf.get("chunk_length_s", 30),
         batch_size=model_conf.get("batch_size", 64),
         generate_kwargs={
-            "task": model_conf.get("task", "transcribe"), 
-            "language": model_conf.get("language", "english")
+            "task": model_conf.get("task", "transcribe"),
+            "language": model_conf.get("language", "english"),
         },
     )
 
     dataset_id = ds_conf.get("id")
     split = ds_conf.get("split", "test")
-    print(f"Loading dataset {dataset_id} [{split}]...")
+    logger.info(f"Loading dataset {dataset_id} [{split}]...")
     ds = load_dataset(dataset_id, split=split, streaming=False)
     df = ds.to_pandas()
-    
+
     id_col = ds_conf.get("id_column", "id")
     audio_col = ds_conf.get("audio_path_column", "audio_path")
     ref_col = ds_conf.get("reference_text_column", "question")
-    
+
     sample_df = df[df[id_col].isin(target_ids)]
 
     dataset_items = []
     for _, row in sample_df.iterrows():
         item_id = str(row[id_col])
         audio_rel_path = str(row[audio_col])
-        audio_path = os.path.join(audio_base_dir, audio_rel_path.lstrip('./'))
-        dataset_items.append({
-            "id": item_id,
-            "ref_text": str(row.get(ref_col, "")),
-            "audio_path": audio_path
-        })
+        audio_path = os.path.join(audio_base_dir, audio_rel_path.lstrip("./"))
+        dataset_items.append({"id": item_id, "ref_text": str(row.get(ref_col, "")), "audio_path": audio_path})
 
     results = {}
     md_lines = [f"# Transcripts Review ({model_id})\n", "| ID | Reference Text | Whisper Transcript |", "|---|---|---|"]
 
-    print("Starting batched transcription...")
-    
+    logger.info("Starting batched transcription...")
+
     target_sr = model_conf.get("target_sample_rate", 16000)
     generator = audio_generator(dataset_items, target_sr, "audio_path")
-    
-    for item, out in tqdm(zip(dataset_items, pipe(generator)), total=len(dataset_items)):
+
+    for item, out in tqdm(zip(dataset_items, pipe(generator), strict=True), total=len(dataset_items)):
         item_id = item["id"]
         text = out.get("text", "").strip()
         if not text:
             text = "[TRANSCRIPTION FAILED OR SILENT]"
-            
+
         results[item_id] = text
         md_lines.append(f"| `{item_id}` | {item['ref_text']} | {text} |")
 
     os.makedirs(os.path.dirname(output_json), exist_ok=True)
     with open(output_json, "w") as f:
         json.dump(results, f, indent=2)
-        
+
     with open(output_md, "w") as f:
         f.write("\n".join(md_lines) + "\n")
-        
-    print(f"Saved {len(results)} transcripts to {output_json} and {output_md}")
+
+    logger.info(f"Saved {len(results)} transcripts to {output_json} and {output_md}")
+
 
 if __name__ == "__main__":
     main()
