@@ -27,7 +27,7 @@ from speech_processing.pipelines.aggregation import (
     ResponseAggregator,
     ShuffledMajorityVoteAggregator,
 )
-from speech_processing.pipelines.base import release_vram
+from speech_processing.pipelines.base import log_gpu_memory, release_vram
 from speech_processing.pipelines.inference import InferencePipeline
 from speech_processing.pipelines.judge import JudgePipeline
 from speech_processing.prompts.templates.judge.qwen import build_mmar_judge_conversation
@@ -128,6 +128,25 @@ _DEPRECATED_TOKENS = 1
 _DEPRECATED_BATCH = 1
 
 
+# ---------------------------------------------------------------------------------------------
+# Scope. V1 already explored the classic-prompting space on this dataset; V2's job is to re-run it
+# under valid measurement and to test the new families. The reported set is the `core` tier: the
+# baseline, the text-only control that defines the subset split, three classic representatives
+# carried over from V1, and one representative of each new family (T1 evidence, T2 presentation,
+# T3 contrastive, T4 consistency, T5 framing).
+# Everything else is `future_work`: implemented, tested and runnable with --experiment, but not
+# part of the reported results. Nothing here is deprecated except v15/v17.
+# ---------------------------------------------------------------------------------------------
+FUTURE_V1_VARIANT = (
+    "Variant of a family V1 already covered; v2, v3 and v7 are the representatives re-run under valid measurement."
+)
+FUTURE_FEW_SHOT_VARIANT = "Few-shot variant; v7 is the reported arm because it was V1's strongest result."
+FUTURE_RAG = "RAG retrieval was characterised in V1 and is not one of the new families this version tests."
+FUTURE_T1_VARIANT = "Acoustic-evidence variant; v18 (diarized) and v20 (both sources) are the reported arms."
+FUTURE_ALPHA_SWEEP = "Contrastive alpha sweep; v25 is the reported mid-point. Run the full sweep only if v25 moves."
+FUTURE_MULTI_TURN = "Multi-turn decomposition overlaps with the T2 two-pass arm (v23), which is the reported one."
+
+
 class ExperimentVersion(Enum):
     v1 = ExperimentMeta(
         experiment_name="baseline",
@@ -156,6 +175,8 @@ class ExperimentVersion(Enum):
         batch_size=8,
         use_transcript=True,
         use_cot=True,
+        tier="future_work",
+        future_work_reason=FUTURE_V1_VARIANT,
     )
     v5 = ExperimentMeta(
         experiment_name="few_shot_text_only",
@@ -163,6 +184,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=1024,
         batch_size=8,
         few_shot_mode="text",
+        tier="future_work",
+        future_work_reason=FUTURE_FEW_SHOT_VARIANT,
     )
     v6 = ExperimentMeta(
         experiment_name="few_shot_text_only_cot",
@@ -171,6 +194,8 @@ class ExperimentVersion(Enum):
         batch_size=8,
         few_shot_mode="text",
         use_cot=True,
+        tier="future_work",
+        future_work_reason=FUTURE_FEW_SHOT_VARIANT,
     )
     v7 = ExperimentMeta(
         experiment_name="few_shot_audio",
@@ -186,6 +211,8 @@ class ExperimentVersion(Enum):
         batch_size=4,
         few_shot_mode="audio",
         use_cot=True,
+        tier="future_work",
+        future_work_reason=FUTURE_FEW_SHOT_VARIANT,
     )
     v9 = ExperimentMeta(
         experiment_name="few_shot_audio_transcript",
@@ -195,6 +222,8 @@ class ExperimentVersion(Enum):
         use_transcript=True,
         few_shot_mode="audio",
         few_shot_include_transcript=True,
+        tier="future_work",
+        future_work_reason=FUTURE_FEW_SHOT_VARIANT,
     )
     v10 = ExperimentMeta(
         experiment_name="few_shot_audio_transcript_cot",
@@ -205,12 +234,16 @@ class ExperimentVersion(Enum):
         few_shot_mode="audio",
         few_shot_include_transcript=True,
         use_cot=True,
+        tier="future_work",
+        future_work_reason=FUTURE_FEW_SHOT_VARIANT,
     )
     v11 = ExperimentMeta(
         experiment_name="role_prompting",
         prompt=_ROLE_PROMPT,
         max_new_tokens=256,
         batch_size=8,
+        tier="future_work",
+        future_work_reason=FUTURE_V1_VARIANT,
     )
     v12 = ExperimentMeta(
         experiment_name="multi_turn_decomposition",
@@ -220,6 +253,8 @@ class ExperimentVersion(Enum):
         ],
         max_new_tokens=256,
         batch_size=2,
+        tier="future_work",
+        future_work_reason=FUTURE_MULTI_TURN,
     )
     v13 = ExperimentMeta(
         experiment_name="text_only_llm",
@@ -237,6 +272,8 @@ class ExperimentVersion(Enum):
         few_shot_mode="rag",
         rag_mapping_file=RAG_MAPPING_FILE,
         stop=RAG_STOP_SEQUENCES,
+        tier="future_work",
+        future_work_reason=FUTURE_RAG,
     )
     v15 = ExperimentMeta(
         experiment_name="rag_few_shots_cot",
@@ -256,6 +293,8 @@ class ExperimentVersion(Enum):
         few_shot_include_transcript=True,
         rag_mapping_file=RAG_MAPPING_FILE,
         stop=RAG_STOP_SEQUENCES,
+        tier="future_work",
+        future_work_reason=FUTURE_RAG,
     )
     v17 = ExperimentMeta(
         experiment_name="rag_few_shots_transcript_cot",
@@ -282,6 +321,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=256,
         batch_size=8,
         inject_acoustic_features=True,
+        tier="future_work",
+        future_work_reason=FUTURE_T1_VARIANT,
     )
     v20 = ExperimentMeta(
         experiment_name="audio_diarized_features",
@@ -299,6 +340,8 @@ class ExperimentVersion(Enum):
         text_only=True,
         inject_diarized_transcript=True,
         inject_acoustic_features=True,
+        tier="future_work",
+        future_work_reason=FUTURE_T1_VARIANT,
     )
 
     # ---------------------------------------------------------
@@ -328,6 +371,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=1,
         batch_size=8,
         contrastive_alpha=0.0,
+        tier="future_work",
+        future_work_reason=FUTURE_ALPHA_SWEEP,
     )
     v25 = ExperimentMeta(
         experiment_name="contrastive_alpha_0_5",
@@ -342,6 +387,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=1,
         batch_size=8,
         contrastive_alpha=1.0,
+        tier="future_work",
+        future_work_reason=FUTURE_ALPHA_SWEEP,
     )
 
     # ---------------------------------------------------------
@@ -374,6 +421,11 @@ class ExperimentVersion(Enum):
         if meta.deprecated:
             raise DeprecatedExperimentError(
                 f"{version.name} ({meta.experiment_name}) is deprecated: {meta.deprecation_reason}"
+            )
+        if meta.is_future_work:
+            logger.warning(
+                f"{version.name} ({meta.experiment_name}) is tier 'future_work' and sits outside the "
+                f"reported set: {meta.future_work_reason}"
             )
         return version
 
@@ -455,6 +507,7 @@ def run_mmar(args):
     ground_truths = [gt for _, gt in items]
 
     logger.info("--- [PHASE 2] INITIALIZING INFERENCE ENGINE ---")
+    log_gpu_memory()
     inference_pipeline = InferencePipeline(build_engine(config, meta), build_aggregator(meta))
 
     logger.info(f"--- [PHASE 3] RUNNING INFERENCE ({num_runs} RUNS) ---")

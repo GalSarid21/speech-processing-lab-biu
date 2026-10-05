@@ -45,7 +45,7 @@ from speech_processing.pipelines.aggregation import (
     ResponseAggregator,
     ShuffledMajorityVoteAggregator,
 )
-from speech_processing.pipelines.base import release_vram
+from speech_processing.pipelines.base import log_gpu_memory, release_vram
 from speech_processing.pipelines.inference import InferencePipeline
 from speech_processing.pipelines.judge import JudgePipeline, ParserOnlyPipeline
 from speech_processing.prompts.templates.judge.qwen import build_icbhi_choice_judge_conversation
@@ -163,6 +163,39 @@ _TEXT_ONLY_METADATA_PROMPT = (
     f"You must pick exactly one choice. {ANSWER_WITH_LETTER}"
 )
 
+# ---------------------------------------------------------------------------------------------
+# Scope. With n=174 the 95% CI on accuracy is about +-7 points, so every additional arm compared
+# against one baseline buys another chance of a spurious "significant" result. The reported set is
+# the `core` tier: the two controls, the blind/metadata-aware baseline pair, two classic-prompting
+# representatives, and the two arms of each pre-registered comparison
+#   (1) a1b vs r0   (2) best a3* vs r0   (3) a5c vs a5a.
+# Everything else is `future_work`: implemented, tested and runnable with --experiment, but not
+# part of the reported results. Nothing here is deprecated - these are extensions, not mistakes.
+# ---------------------------------------------------------------------------------------------
+FUTURE_CLASSIC_VARIANT = "Classic-prompting variant; r2 and r3 already represent this family in the reported set."
+FUTURE_FEW_SHOT_LEAKAGE = (
+    "Few-shot on ICBHI cannot be made patient-disjoint in this dataset packaging, so any gain is "
+    "only an upper bound. Needs the original 920-recording database first (see data/README.md)."
+)
+FUTURE_T1_VARIANT = "Measured-feature variant; a1b carries the hypothesis and a1c its interpreting control."
+FUTURE_METADATA_AWARE = "Metadata-aware duplicate; r0_aware already quantifies what the recording metadata alone buys."
+FUTURE_SECOND_TOOL = (
+    "A second evidence source on top of A1. Worth testing once the respiratory detectors have been "
+    "validated against real cycle annotations rather than synthetic signals."
+)
+FUTURE_PRESENTATION = (
+    "Alternative audio presentation. Cheap to add later, but it is not one of the three pre-registered comparisons."
+)
+FUTURE_CALIBRATION_VARIANT = "Calibration variant; a5a and a5c are the two arms of the pre-registered comparison."
+FUTURE_RETRIEVAL = (
+    "Retrieval over the same 174 clips shares the patient-leakage problem as few-shot, so it is "
+    "parked behind the same prerequisite."
+)
+FUTURE_CONSISTENCY = (
+    "Choice-order robustness. A good appendix result, but it multiplies the run by 5 for a "
+    "measurement that does not bear on the three pre-registered comparisons."
+)
+
 NUM_ICBHI_LABELS = len(ICBHI_LABELS)
 
 
@@ -203,7 +236,13 @@ class ExperimentVersion(Enum):
         include_recording_metadata=True,
     )
     r1 = ExperimentMeta(
-        dataset=ICBHI, experiment_name="role_pulmonologist", prompt=_ROLE_PROMPT, max_new_tokens=32, batch_size=8
+        dataset=ICBHI,
+        experiment_name="role_pulmonologist",
+        prompt=_ROLE_PROMPT,
+        max_new_tokens=32,
+        batch_size=8,
+        tier="future_work",
+        future_work_reason=FUTURE_CLASSIC_VARIANT,
     )
     r2 = ExperimentMeta(
         dataset=ICBHI, experiment_name="cot", prompt=_COT_PROMPT, max_new_tokens=512, batch_size=8, use_cot=True
@@ -218,6 +257,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=512,
         batch_size=8,
         use_cot=True,
+        tier="future_work",
+        future_work_reason=FUTURE_CLASSIC_VARIANT,
     )
     r5 = ExperimentMeta(
         dataset=ICBHI,
@@ -225,6 +266,8 @@ class ExperimentVersion(Enum):
         prompt=_HIERARCHICAL_TURNS,
         max_new_tokens=256,
         batch_size=2,
+        tier="future_work",
+        future_work_reason=FUTURE_CLASSIC_VARIANT,
     )
     r6 = ExperimentMeta(
         dataset=ICBHI,
@@ -233,6 +276,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=32,
         batch_size=4,
         few_shot_mode="audio",
+        tier="future_work",
+        future_work_reason=FUTURE_FEW_SHOT_LEAKAGE,
     )
     r7 = ExperimentMeta(
         dataset=ICBHI,
@@ -242,9 +287,17 @@ class ExperimentVersion(Enum):
         batch_size=2,
         few_shot_mode="audio",
         use_cot=True,
+        tier="future_work",
+        future_work_reason=FUTURE_FEW_SHOT_LEAKAGE,
     )
     r8 = ExperimentMeta(
-        dataset=ICBHI, experiment_name="prior_informed", prompt=_PRIOR_PROMPT, max_new_tokens=32, batch_size=8
+        dataset=ICBHI,
+        experiment_name="prior_informed",
+        prompt=_PRIOR_PROMPT,
+        max_new_tokens=32,
+        batch_size=8,
+        tier="future_work",
+        future_work_reason=FUTURE_CLASSIC_VARIANT,
     )
 
     # ---------------------------------------------------------
@@ -257,6 +310,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=32,
         batch_size=8,
         inject_acoustic_features=True,
+        tier="future_work",
+        future_work_reason=FUTURE_T1_VARIANT,
     )
     a1b = ExperimentMeta(
         dataset=ICBHI,
@@ -283,6 +338,8 @@ class ExperimentVersion(Enum):
         batch_size=8,
         inject_acoustic_features=True,
         include_recording_metadata=True,
+        tier="future_work",
+        future_work_reason=FUTURE_METADATA_AWARE,
     )
 
     # ---------------------------------------------------------
@@ -295,6 +352,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=32,
         batch_size=8,
         inject_audio_tags=True,
+        tier="future_work",
+        future_work_reason=FUTURE_SECOND_TOOL,
     )
     a2b = ExperimentMeta(
         dataset=ICBHI,
@@ -304,6 +363,8 @@ class ExperimentVersion(Enum):
         batch_size=8,
         inject_audio_tags=True,
         inject_acoustic_features=True,
+        tier="future_work",
+        future_work_reason=FUTURE_SECOND_TOOL,
     )
 
     # ---------------------------------------------------------
@@ -333,6 +394,8 @@ class ExperimentVersion(Enum):
         batch_size=8,
         preprocessing="bandpass_normalize",
         inject_acoustic_features=True,
+        tier="future_work",
+        future_work_reason=FUTURE_T1_VARIANT,
     )
 
     # ---------------------------------------------------------
@@ -345,6 +408,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=32,
         batch_size=4,
         presentation="cycles",
+        tier="future_work",
+        future_work_reason=FUTURE_PRESENTATION,
     )
     a4b = ExperimentMeta(
         dataset=ICBHI,
@@ -353,6 +418,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=64,
         batch_size=4,
         presentation="two_pass_localization",
+        tier="future_work",
+        future_work_reason=FUTURE_PRESENTATION,
     )
 
     # ---------------------------------------------------------
@@ -374,6 +441,8 @@ class ExperimentVersion(Enum):
         batch_size=4,
         contrastive_alpha=1.0,
         calibration="silence",
+        tier="future_work",
+        future_work_reason=FUTURE_CALIBRATION_VARIANT,
     )
     a5c = ExperimentMeta(
         dataset=ICBHI,
@@ -393,6 +462,8 @@ class ExperimentVersion(Enum):
         contrastive_alpha=1.0,
         calibration="content_free",
         inject_acoustic_features=True,
+        tier="future_work",
+        future_work_reason=FUTURE_CALIBRATION_VARIANT,
     )
 
     # ---------------------------------------------------------
@@ -405,6 +476,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=32,
         batch_size=8,
         inject_neighbor_labels=True,
+        tier="future_work",
+        future_work_reason=FUTURE_RETRIEVAL,
     )
     a6b = ExperimentMeta(
         dataset=ICBHI,
@@ -414,6 +487,8 @@ class ExperimentVersion(Enum):
         batch_size=2,
         few_shot_mode="rag",
         rag_mapping_file=ICBHI_RAG_MAPPING_FILE,
+        tier="future_work",
+        future_work_reason=FUTURE_RETRIEVAL,
     )
 
     # ---------------------------------------------------------
@@ -426,6 +501,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=32,
         batch_size=8,
         num_shuffled_variants=5,
+        tier="future_work",
+        future_work_reason=FUTURE_CONSISTENCY,
     )
 
     @classmethod
@@ -441,6 +518,11 @@ class ExperimentVersion(Enum):
         if meta.deprecated:
             raise DeprecatedExperimentError(
                 f"{version.name} ({meta.experiment_name}) is deprecated: {meta.deprecation_reason}"
+            )
+        if meta.is_future_work:
+            logger.warning(
+                f"{version.name} ({meta.experiment_name}) is tier 'future_work' and sits outside the "
+                f"reported set: {meta.future_work_reason}"
             )
         return version
 
@@ -549,6 +631,7 @@ def run_icbhi(args):
     ground_truths = [gt for _, gt in items]
 
     logger.info("--- [PHASE 2] INITIALIZING INFERENCE ENGINE ---")
+    log_gpu_memory()
     inference_pipeline = InferencePipeline(build_engine(config, meta, items), build_aggregator(meta))
 
     logger.info(f"--- [PHASE 3] RUNNING INFERENCE ({num_runs} RUNS) ---")

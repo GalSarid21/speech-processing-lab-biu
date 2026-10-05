@@ -15,6 +15,10 @@ from speech_processing.utils.consts import DEFAULT_SAMPLING_RATE
 
 GEMMA_MODEL_ID = "google/gemma-4-26B-A4B-it"
 VOXTRAL_MODEL_ID = "mistralai/Voxtral-Small-24B-2507"
+# ~45 GiB of bf16 weights, so VOXTRAL_MODEL_ID needs an 80GB card. This 3B sibling fits anywhere and
+# is the intended --audio-model-id for validating the pipeline on a smaller GPU. Its scores are NOT
+# comparable to any run made with the 24B model.
+VOXTRAL_MINI_MODEL_ID = "mistralai/Voxtral-Mini-3B-2507"
 QWEN_AUDIO_MODEL_ID = "Qwen/Qwen2-Audio-7B-Instruct"
 JUDGE_MODEL_ID = "Qwen/Qwen3.8-27B-FP8"
 
@@ -79,9 +83,10 @@ def create_gemma_config(
     max_new_tokens: int = DEFAULT_TEXT_MAX_NEW_TOKENS,
     gpu_pct: float = DEFAULT_GPU_PCT,
     stop: list[str] | None = None,
+    model_id: str = GEMMA_MODEL_ID,
 ) -> TextModelConfig:
     return TextModelConfig(
-        model_id=GEMMA_MODEL_ID,
+        model_id=model_id,
         dtype="bfloat16",
         max_num_seqs=max_num_seqs,
         max_new_tokens=max_new_tokens,
@@ -100,9 +105,10 @@ def create_voxtral_config(
     max_new_tokens: int = DEFAULT_AUDIO_MAX_NEW_TOKENS,
     gpu_pct: float = DEFAULT_GPU_PCT,
     stop: list[str] | None = None,
+    model_id: str = VOXTRAL_MODEL_ID,
 ) -> AudioModelConfig:
     return AudioModelConfig(
-        model_id=VOXTRAL_MODEL_ID,
+        model_id=model_id,
         dtype="bfloat16",
         max_num_seqs=max_num_seqs,
         max_new_tokens=max_new_tokens,
@@ -150,6 +156,8 @@ def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
     """Factory for creating a fully initialized ICBHI configuration."""
     gpu_pct = getattr(args, "gpu_pct", DEFAULT_GPU_PCT)
     max_seqs = getattr(args, "max_seqs", DEFAULT_MAX_SEQS)
+    audio_model_id = getattr(args, "audio_model_id", None) or VOXTRAL_MODEL_ID
+    text_model_id = getattr(args, "text_model_id", None) or GEMMA_MODEL_ID
 
     dataset_config = DatasetConfig(
         dataset_id=ICBHI_DATASET_ID,
@@ -173,6 +181,7 @@ def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
             max_new_tokens=experiment_meta.max_new_tokens,
             gpu_pct=gpu_pct,
             stop=experiment_meta.stop,
+            model_id=text_model_id,
         )
     else:
         audio_model = create_voxtral_config(
@@ -180,6 +189,7 @@ def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
             max_new_tokens=experiment_meta.max_new_tokens,
             gpu_pct=gpu_pct,
             stop=experiment_meta.stop,
+            model_id=audio_model_id,
         )
 
     return AppConfig(
@@ -195,6 +205,8 @@ def create_mmar_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
     """Factory for creating a fully initialized MMAR configuration."""
     gpu_pct = getattr(args, "gpu_pct", DEFAULT_GPU_PCT)
     max_seqs = getattr(args, "max_seqs", DEFAULT_MAX_SEQS)
+    audio_model_id = getattr(args, "audio_model_id", None) or VOXTRAL_MODEL_ID
+    text_model_id = getattr(args, "text_model_id", None) or GEMMA_MODEL_ID
 
     dataset_config = DatasetConfig(
         dataset_id=MMAR_DATASET_ID,
@@ -216,6 +228,7 @@ def create_mmar_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
             max_new_tokens=experiment_meta.max_new_tokens,
             gpu_pct=gpu_pct,
             stop=experiment_meta.stop,
+            model_id=text_model_id,
         )
     else:
         audio_model = create_voxtral_config(
@@ -223,6 +236,7 @@ def create_mmar_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
             max_new_tokens=experiment_meta.max_new_tokens,
             gpu_pct=gpu_pct,
             stop=experiment_meta.stop,
+            model_id=audio_model_id,
         )
 
     return AppConfig(

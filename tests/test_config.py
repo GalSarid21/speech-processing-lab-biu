@@ -5,7 +5,11 @@ from assertpy import assert_that
 from pydantic import ValidationError
 
 from speech_processing.config.core import ExperimentMeta
-from speech_processing.config.factories import VOXTRAL_MODEL_ID, create_mmar_config
+from speech_processing.config.factories import (
+    VOXTRAL_MODEL_ID,
+    create_icbhi_config,
+    create_mmar_config,
+)
 from speech_processing.utils.consts import RAG_STOP_SEQUENCES
 from speech_processing.utils.exceptions import InvalidExperimentConfigError
 
@@ -79,3 +83,57 @@ def test_field_constraints(overrides):
 def test_deprecated_entries_skip_validation():
     deprecated = meta(prompt="", few_shot_mode="rag", deprecated=True, deprecation_reason="B3")
     assert_that(deprecated.deprecated).is_true()
+
+
+VOXTRAL_MINI = "mistralai/Voxtral-Mini-3B-2507"
+
+
+def test_audio_model_id_can_be_overridden(args):
+    """The 24B default needs an 80GB card; a smaller GPU has to be able to run the pipeline at all."""
+    overridden = SimpleNamespace(**vars(args), audio_model_id=VOXTRAL_MINI)
+
+    config = create_mmar_config(overridden, meta())
+
+    assert_that(config.audio_model.model_id).is_equal_to(VOXTRAL_MINI)
+
+
+def test_text_model_id_can_be_overridden(args):
+    overridden = SimpleNamespace(**vars(args), text_model_id="google/gemma-2-2b-it")
+
+    config = create_mmar_config(overridden, meta(text_only=True, use_transcript=True))
+
+    assert_that(config.text_model.model_id).is_equal_to("google/gemma-2-2b-it")
+
+
+@pytest.mark.parametrize("builder", [create_mmar_config, create_icbhi_config])
+def test_model_ids_default_to_the_registry_constants(args, builder):
+    config = builder(args, meta())
+
+    assert_that(config.audio_model.model_id).is_equal_to(VOXTRAL_MODEL_ID)
+
+
+@pytest.mark.parametrize("builder", [create_mmar_config, create_icbhi_config])
+def test_max_seqs_and_gpu_pct_reach_the_model_config(args, builder):
+    config = builder(args, meta())
+
+    assert_that(config.audio_model.max_num_seqs).is_equal_to(args.max_seqs)
+    assert_that(config.audio_model.gpu_memory_utilization).is_equal_to(args.gpu_pct)
+
+
+@pytest.mark.parametrize(
+    "rule, overrides",
+    [
+        ("R14", {"tier": "future_work", "future_work_reason": "r", "deprecated": True}),
+        ("R15", {"tier": "future_work"}),
+        ("R16", {"future_work_reason": "set without the tier"}),
+    ],
+)
+def test_tier_rules_are_enforced(rule, overrides):
+    with pytest.raises(InvalidExperimentConfigError) as excinfo:
+        meta(**overrides)
+    assert_that(str(excinfo.value)).contains(rule)
+
+
+def test_experiments_are_core_by_default():
+    assert_that(meta().tier).is_equal_to("core")
+    assert_that(meta().is_future_work).is_false()

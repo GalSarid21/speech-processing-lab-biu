@@ -4,6 +4,7 @@ from assertpy import assert_that
 from speech_processing.data.dtos import AudioRequest, TextRequest
 from speech_processing.data.enums import DatasetType
 from speech_processing.data.icbhi import ICBHI_LABELS, load_icbhi_requests
+from speech_processing.runners.base import experiment_keys
 from speech_processing.runners.icbhi import ACOUSTIC_DICTIONARY, ExperimentVersion
 from speech_processing.utils.consts import COT_START_TAG
 
@@ -140,3 +141,43 @@ def test_shuffled_variants_keep_the_true_label_behind_the_ground_truth_letter(pa
         assert_that(metadata.choices[ord(ground_truth) - ord("A")]).is_equal_to(metadata.category)
 
     assert_that(items[0][0].metadata.permutation).is_equal_to(list(range(len(ICBHI_LABELS))))
+
+
+CORE_KEYS = {"c1", "c2", "r0", "r0_aware", "r2", "r3", "a1b", "a1c", "a3a", "a3b", "a5a", "a5c"}
+
+
+def test_the_core_tier_is_the_pre_registered_set():
+    assert_that(set(experiment_keys(ExperimentVersion, "core"))).is_equal_to(CORE_KEYS)
+
+
+def test_every_pre_registered_comparison_has_both_arms_in_core():
+    """(1) a1b vs r0  (2) best a3* vs r0  (3) a5c vs a5a."""
+    core = set(experiment_keys(ExperimentVersion, "core"))
+    for left, right in [("a1b", "r0"), ("a3a", "r0"), ("a3b", "r0"), ("a5c", "a5a")]:
+        assert_that(core).contains(left, right)
+
+
+def test_the_controls_that_interpret_the_results_are_in_core():
+    core = set(experiment_keys(ExperimentVersion, "core"))
+    # c2 defines the subset split, a1c says whether A1 gains come from the front end, c1 the prior.
+    assert_that(core).contains("c1", "c2", "a1c", "r0_aware")
+
+
+@pytest.mark.parametrize("key", sorted(set(ACTIVE_KEYS) - CORE_KEYS))
+def test_every_non_core_experiment_explains_why_it_is_out_of_scope(key):
+    meta = ExperimentVersion[key].value
+    assert_that(meta.is_future_work).is_true()
+    assert_that(meta.future_work_reason).is_not_none()
+    assert_that(len(meta.future_work_reason)).is_greater_than(30)
+
+
+def test_future_work_is_still_runnable():
+    """Out of scope is not deprecated: these must still resolve."""
+    assert_that(ExperimentVersion.get_version("a7a").value.experiment_name).is_equal_to("choice_shuffling")
+
+
+def test_tiers_partition_the_runnable_experiments():
+    core = experiment_keys(ExperimentVersion, "core")
+    future = experiment_keys(ExperimentVersion, "future_work")
+    assert_that(set(core) & set(future)).is_empty()
+    assert_that(sorted(core + future)).is_equal_to(sorted(experiment_keys(ExperimentVersion)))

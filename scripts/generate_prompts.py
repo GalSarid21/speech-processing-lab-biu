@@ -38,6 +38,9 @@ def export_audio_prompts(dataset: str, output_dir: Path) -> None:
         file_path = output_dir / f"{dataset}_audio_experiment_{exp.name.lower()}.txt"
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(f"Experiment Name: {exp.value.experiment_name}\n")
+            f.write(f"Tier: {exp.value.tier}\n")
+            if exp.value.is_future_work:
+                f.write(f"Out of reported scope: {exp.value.future_work_reason}\n")
             f.write(SEPARATOR + "\n")
 
             prompt_data = exp.value.prompt

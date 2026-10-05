@@ -9,6 +9,11 @@ FewShotMode = Literal["none", "text", "audio", "rag"]
 AudioPresentationMode = Literal["full_clip", "chunked", "two_pass_localization", "cycles"]
 AudioPreprocessingMode = Literal["none", "bandpass_normalize", "bandpass_normalize_shift"]
 CalibrationMode = Literal["none", "silence", "content_free"]
+# "core" is the pre-registered set this project reports. "future_work" is implemented, tested and
+# runnable, but deliberately outside the reported scope - at n=174 every extra arm compared against
+# one baseline buys another chance of a spurious result. It is NOT the same as `deprecated`, which
+# means retired and refuses to run.
+ExperimentTier = Literal["core", "future_work"]
 
 TWO_PASS_NUM_TURNS = 2
 
@@ -98,6 +103,10 @@ class ExperimentMeta(FrozenConfig):
     calibration: CalibrationMode = "none"
     contrastive_alpha: float | None = Field(default=None, ge=0.0)
     num_shuffled_variants: int = Field(default=1, ge=1)
+    tier: ExperimentTier = "core"
+    future_work_reason: str | None = Field(
+        default=None, description="Why this arm is implemented but left out of the reported set."
+    )
     deprecated: bool = False
     deprecation_reason: str | None = None
 
@@ -118,12 +127,26 @@ class ExperimentMeta(FrozenConfig):
     def needs_cycle_spans(self) -> bool:
         return self.presentation == "cycles"
 
+    @property
+    def is_future_work(self) -> bool:
+        return self.tier == "future_work"
+
     @model_validator(mode="after")
     def _validate_combination(self) -> "ExperimentMeta":
+        if self.deprecated and self.is_future_work:
+            raise InvalidExperimentConfigError(
+                f"Invalid experiment '{self.experiment_name}': R14: deprecated and future_work are "
+                "different exits; an experiment cannot be both."
+            )
         if self.deprecated:
             return self
 
         violations: list[str] = []
+
+        if self.is_future_work and not self.future_work_reason:
+            violations.append("R15: a future_work experiment must say why it is out of scope.")
+        if self.future_work_reason and not self.is_future_work:
+            violations.append("R16: future_work_reason only applies to tier='future_work'.")
 
         if self.few_shot_mode == "rag" and not self.rag_mapping_file:
             violations.append("R1: few_shot_mode='rag' requires rag_mapping_file.")

@@ -3,6 +3,7 @@ from assertpy import assert_that
 
 from speech_processing.data.dataset import load_mmar_requests
 from speech_processing.data.dtos import AudioRequest, TextRequest
+from speech_processing.runners.base import experiment_keys
 from speech_processing.runners.mmar import ExperimentVersion
 from speech_processing.utils.consts import COT_START_TAG
 from speech_processing.utils.exceptions import DeprecatedExperimentError
@@ -111,3 +112,44 @@ def test_deprecated_versions_raise(key):
 
 def test_unknown_version_raises_value_error():
     assert_that(ExperimentVersion.get_version).raises(ValueError).when_called_with("v999")
+
+
+CORE_KEYS = {"v1", "v2", "v3", "v7", "v13", "v18", "v20", "v22", "v23", "v25", "v27", "v28"}
+
+
+def test_the_core_tier_is_the_reported_set():
+    assert_that(set(experiment_keys(ExperimentVersion, "core"))).is_equal_to(CORE_KEYS)
+
+
+def test_core_covers_the_baseline_the_split_and_every_new_family():
+    core = set(experiment_keys(ExperimentVersion, "core"))
+    assert_that(core).contains("v1")  # baseline
+    assert_that(core).contains("v13")  # text-only control, defines the subset split
+    assert_that(core).contains("v18", "v20")  # T1 acoustic evidence
+    assert_that(core).contains("v22", "v23")  # T2 presentation
+    assert_that(core).contains("v25")  # T3 contrastive
+    assert_that(core).contains("v27")  # T4 consistency
+    assert_that(core).contains("v28")  # T5 framing
+
+
+@pytest.mark.parametrize("key", sorted(set(ACTIVE_KEYS) - CORE_KEYS))
+def test_every_non_core_experiment_explains_why_it_is_out_of_scope(key):
+    meta = ExperimentVersion[key].value
+    assert_that(meta.is_future_work).is_true()
+    assert_that(meta.future_work_reason).is_not_none()
+    assert_that(len(meta.future_work_reason)).is_greater_than(30)
+
+
+def test_deprecated_entries_belong_to_no_tier():
+    """v15 and v17 are retired, which is a different exit from being out of scope."""
+    runnable = set(experiment_keys(ExperimentVersion))
+    assert_that(runnable).does_not_contain("v15", "v17")
+    for key in ("v15", "v17"):
+        assert_that(ExperimentVersion[key].value.is_future_work).is_false()
+
+
+def test_tiers_partition_the_runnable_experiments():
+    core = experiment_keys(ExperimentVersion, "core")
+    future = experiment_keys(ExperimentVersion, "future_work")
+    assert_that(set(core) & set(future)).is_empty()
+    assert_that(sorted(core + future)).is_equal_to(sorted(experiment_keys(ExperimentVersion)))
