@@ -9,7 +9,11 @@ dependencies = [
     "librosa>=0.10.2",
     "loguru>=0.7.2",
     "numpy>=1.26",
+    # Whisper and pyannote are needed by scripts/extract_acoustic_features.py (MMAR v18-v21). They are
+    # regular dependencies so `uv run python scripts/...` finds them in the project environment.
+    "openai-whisper>=20250625",
     "pandas>=2.2",
+    "pyannote.audio>=4.0",
     "pydantic>=2.9",
     "pyyaml>=6.0",
     "scikit-learn>=1.5",
