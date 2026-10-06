@@ -7,6 +7,7 @@ from speech_processing.data.icbhi import ICBHI_LABELS, load_icbhi_requests
 from speech_processing.runners.base import experiment_keys
 from speech_processing.runners.icbhi import ACOUSTIC_DICTIONARY, ExperimentVersion
 from speech_processing.utils.consts import COT_START_TAG
+from speech_processing.utils.exceptions import DeprecatedExperimentError
 
 ACTIVE = [v for v in ExperimentVersion if not v.value.deprecated]
 ACTIVE_KEYS = [v.name for v in ACTIVE]
@@ -14,7 +15,7 @@ NUM_EVAL_ITEMS = 3
 
 LOCATION_MARKER = "recorded at"
 MODE_MARKER = "acquisition mode"
-METADATA_AWARE_KEYS = {"c2", "r0_aware", "a1d"}
+METADATA_AWARE_KEYS = {"c2", "c3", "r0_aware", "a1d"}
 BLIND_KEYS = [k for k in ACTIVE_KEYS if k not in METADATA_AWARE_KEYS]
 
 
@@ -123,9 +124,31 @@ def test_cot_prefill(patched_icbhi, icbhi_config, key, expects_prefill):
     assert_that(request.assistant_prefill).is_equal_to(f"{COT_START_TAG}\n" if expects_prefill else None)
 
 
-def test_the_silence_control_is_the_only_one_replacing_audio():
-    replacing = [v.name for v in ExperimentVersion if v.value.replace_audio_with_silence]
-    assert_that(replacing).is_equal_to(["c1"])
+def test_only_the_controls_replace_the_audio():
+    replacing = {v.name for v in ExperimentVersion if v.value.replace_audio_with_silence}
+    assert_that(replacing).is_equal_to({"c1", "c3", "c4"})
+
+
+@pytest.mark.parametrize("control, parent", [("c1", "r0"), ("c3", "r0_aware"), ("c4", "a1b")])
+def test_each_control_is_an_audio_ablation_of_its_parent(control, parent):
+    """Same model, same prompt, same evidence: the only difference is that the audio is silence.
+    So the gap between a control and its parent is exactly what listening contributed."""
+    ablated = ExperimentVersion[control].value
+    original = ExperimentVersion[parent].value
+    ignore = {"experiment_name", "replace_audio_with_silence"}
+
+    differing = {
+        field
+        for field in type(original).model_fields
+        if field not in ignore and getattr(ablated, field) != getattr(original, field)
+    }
+    assert_that(differing).is_empty()
+    assert_that(ablated.replace_audio_with_silence).is_true()
+    assert_that(original.replace_audio_with_silence).is_false()
+
+
+def test_r8_is_deprecated_because_its_prior_had_no_source():
+    assert_that(ExperimentVersion.get_version).raises(DeprecatedExperimentError).when_called_with("r8")
 
 
 def test_unknown_version_raises_value_error():
@@ -143,7 +166,7 @@ def test_shuffled_variants_keep_the_true_label_behind_the_ground_truth_letter(pa
     assert_that(items[0][0].metadata.permutation).is_equal_to(list(range(len(ICBHI_LABELS))))
 
 
-CORE_KEYS = {"c1", "c2", "r0", "r0_aware", "r2", "r3", "a1b", "a1c", "a3a", "a3b", "a5a", "a5c"}
+CORE_KEYS = {"c1", "c3", "c4", "r0", "r0_aware", "r2", "r3", "r6", "a1b", "a3a", "a3b", "a5a", "a5c"}
 
 
 def test_the_core_tier_is_the_pre_registered_set():
@@ -159,8 +182,10 @@ def test_every_pre_registered_comparison_has_both_arms_in_core():
 
 def test_the_controls_that_interpret_the_results_are_in_core():
     core = set(experiment_keys(ExperimentVersion, "core"))
-    # c2 defines the subset split, a1c says whether A1 gains come from the front end, c1 the prior.
-    assert_that(core).contains("c1", "c2", "a1c", "r0_aware")
+    # c1 is the label prior; c3 defines the metadata-solvable split; c4 says whether A1's gain needs
+    # the audio at all. All three run on the same model as the arms they interpret.
+    assert_that(core).contains("c1", "c3", "c4", "r0_aware")
+    assert_that(core).does_not_contain("c2", "a1c")  # cross-model controls are future work
 
 
 @pytest.mark.parametrize("key", sorted(set(ACTIVE_KEYS) - CORE_KEYS))

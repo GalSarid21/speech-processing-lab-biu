@@ -73,8 +73,8 @@ class DatasetConfig(FrozenConfig):
     neighbor_labels_file: str | None = Field(
         default=None, description="Path to the audio-embedding kNN neighbour labels JSON."
     )
-    near_duplicates_file: str | None = Field(
-        default=None, description="Path to the near-duplicate pairs JSON used to filter demonstrations."
+    demo_ids_file: str | None = Field(
+        default=None, description="Path to the held-out demonstration split that fixes the ICBHI evaluation set."
     )
 
 

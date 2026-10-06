@@ -7,7 +7,7 @@ from sklearn.metrics import classification_report, f1_score
 from speech_processing.data.choices import index_for_letter, letters_for
 from speech_processing.data.dtos.metrics import AggregateMetrics, ICBHIAggregateMetrics, MMARAggregateMetrics
 from speech_processing.data.dtos.responses import EvaluationResult, JudgeResponse
-from speech_processing.data.icbhi import HEALTHY_LABEL, ICBHI_LABELS
+from speech_processing.data.icbhi import HEALTHY_LABEL, ICBHI_LABELS, ICBHI_PRIMARY_LABELS
 from speech_processing.evaluation.answer_parsing import parse_choice_letter
 from speech_processing.utils.consts import UNPARSED_CHOICE
 
@@ -133,10 +133,12 @@ def _icbhi_prediction(response: JudgeResponse) -> str:
 def calculate_icbhi_metrics(evaluations: list[JudgeResponse]) -> ICBHIAggregateMetrics | None:
     """Closed-set ICBHI scoring.
 
-    Balanced accuracy is primary and the report carries its own baselines, because plain accuracy on
-    a set that is ~35-40% COPD is dominated by the majority class. Acoustic accuracy and
-    hallucination rate are deliberately absent: this packaging has no cycle-level ground truth, so
-    they would measure the judge's sense of plausibility, not the audio.
+    Balanced accuracy is primary, averaged over ICBHI_PRIMARY_LABELS: every supported class counts
+    equally, so always answering COPD scores exactly chance however large the COPD share is. Asthma
+    and LRTI items are still answered and still count towards accuracy, but not towards the primary
+    average, where one or two items would swing it by 6-12 points. Every report carries its own
+    baselines. Acoustic accuracy and hallucination rate are deliberately absent: this packaging has
+    no cycle-level ground truth, so they would measure the judge's sense of plausibility, not audio.
     """
     if not evaluations:
         return None
@@ -145,15 +147,26 @@ def calculate_icbhi_metrics(evaluations: list[JudgeResponse]) -> ICBHIAggregateM
     y_pred = [_icbhi_prediction(e) for e in evaluations]
     num_evals = len(evaluations)
 
+    primary = [(t, p) for t, p in zip(y_true, y_pred, strict=True) if t in ICBHI_PRIMARY_LABELS]
+    primary_true = [t for t, _ in primary]
+    primary_pred = [p for _, p in primary]
+    primary_present = sorted(set(primary_true), key=ICBHI_LABELS.index)
+
     majority_count = Counter(y_true).most_common(1)[0][1]
     prediction_counts = Counter(y_pred)
 
     return ICBHIAggregateMetrics(
-        balanced_accuracy_pct=_balanced_accuracy_pct(y_true, y_pred),
-        macro_f1_pct=f1_score(y_true, y_pred, labels=list(ICBHI_LABELS), average="macro", zero_division=0) * _PCT,
+        balanced_accuracy_pct=_balanced_accuracy_pct(primary_true, primary_pred),
+        balanced_accuracy_all_classes_pct=_balanced_accuracy_pct(y_true, y_pred),
+        # Over the primary classes that occur, so an absent class cannot contribute a free zero.
+        macro_f1_pct=(
+            f1_score(y_true, y_pred, labels=primary_present, average="macro", zero_division=0) * _PCT
+            if primary_present
+            else 0.0
+        ),
         accuracy_pct=sum(t == p for t, p in zip(y_true, y_pred, strict=True)) / num_evals * _PCT,
         majority_baseline_pct=majority_count / num_evals * _PCT,
-        chance_balanced_acc_pct=_PCT / len(set(y_true)),
+        chance_balanced_acc_pct=_PCT / len(primary_present) if primary_present else 0.0,
         collapse_index_pct=prediction_counts.most_common(1)[0][1] / num_evals * _PCT,
         unparsed_pct=prediction_counts.get(UNPARSED_CHOICE, 0) / num_evals * _PCT,
         binary_disease_balanced_acc_pct=_binary_balanced_accuracy_pct(

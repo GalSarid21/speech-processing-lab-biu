@@ -9,18 +9,20 @@ from speech_processing.data.dtos import AudioRequest, TextRequest
 from speech_processing.data.enums import DatasetType
 from speech_processing.data.icbhi import (
     ICBHI_LABELS,
+    ICBHI_PRIMARY_LABELS,
     MAX_DEMONSTRATIONS,
     build_icbhi_few_shot_pool,
-    filter_demonstrations,
+    build_icbhi_neighbor_pool,
+    load_demonstration_split,
     load_icbhi_requests,
-    load_near_duplicates,
     parse_instruction_metadata,
-    validate_icbhi_demonstrations,
+    select_demonstration_split,
+    validate_demonstration_disjointness,
 )
 from speech_processing.runners.icbhi import ExperimentVersion
 from speech_processing.utils.consts import NO_FEATURES_PLACEHOLDER
 from speech_processing.utils.exceptions import DatasetIntegrityError, FewShotLeakageError
-from tests.conftest import ICBHI_INSTRUCTION_TEMPLATES, ICBHI_ROWS
+from tests.conftest import ICBHI_DEMO_IDS, ICBHI_EVAL_IDS, ICBHI_INSTRUCTION_TEMPLATES, ICBHI_ROWS
 
 BASE_FIELDS = {
     "dataset": DatasetType.ICBHI,
@@ -57,7 +59,7 @@ def test_parse_instruction_metadata_raises_without_metadata():
 def test_requests_are_lettered_over_the_closed_label_set(patched_icbhi, icbhi_config):
     items = load_icbhi_requests(icbhi_config, meta())
 
-    assert_that(items).is_length(len(ICBHI_ROWS))
+    assert_that(items).is_length(len(ICBHI_EVAL_IDS))
     assert_that([gt for _, gt in items]).is_equal_to(["A", "H", "B"])
 
     first = items[0][0]
@@ -140,31 +142,103 @@ def test_audio_bytes_are_materialised_to_files(patched_icbhi, icbhi_config, tmp_
     assert_that(json.dumps(request.audio_path)).contains("icbhi_audio")
 
 
-def test_demonstration_pool_respects_the_audio_limit(patched_icbhi, icbhi_config):
+def test_held_out_demonstrations_are_never_scored(patched_icbhi, icbhi_config):
+    """Every experiment scores the same items, and a demonstration is never one of them."""
+    for experiment in (meta(), meta(few_shot_mode="audio"), meta(include_recording_metadata=True)):
+        scored = [req.metadata.item_id for req, _ in load_icbhi_requests(icbhi_config, experiment)]
+        assert_that(scored).is_equal_to(ICBHI_EVAL_IDS)
+        assert_that(scored).does_not_contain(*ICBHI_DEMO_IDS)
+
+
+def test_missing_demonstration_split_is_fatal(patched_icbhi, icbhi_config, tmp_path):
+    """Without it the evaluation set would silently change, which is what broke V1 vs V3."""
+    config = icbhi_config.model_copy(update={"demo_ids_file": str(tmp_path / "nope.json")})
+    assert_that(load_icbhi_requests).raises(DatasetIntegrityError).when_called_with(config, meta())
+
+
+def test_the_few_shot_pool_is_exactly_the_held_out_split(patched_icbhi, icbhi_config):
     pool = build_icbhi_few_shot_pool(icbhi_config, meta(few_shot_mode="audio"))
 
+    assert_that(list(pool)).is_equal_to(ICBHI_DEMO_IDS)
     assert_that(len(pool)).is_less_than_or_equal_to(MAX_DEMONSTRATIONS)
-    assert_that(sorted(pool)).is_equal_to(["audio1", "audio2", "audio3"])
-    assert_that(pool["audio1"].assistant_text).is_equal_to("A")
-    assert_that(pool["audio1"].audio_path).is_not_none()
+    assert_that(pool["audio4"].assistant_text).is_equal_to("C")  # URTI
+    assert_that(pool["audio4"].audio_path).is_not_none()
 
 
-def test_demonstrations_exclude_the_item_and_its_near_duplicates(patched_icbhi, icbhi_config):
-    pool = build_icbhi_few_shot_pool(icbhi_config, meta(few_shot_mode="audio"))
-    near_duplicates = load_near_duplicates(icbhi_config.near_duplicates_file)
-
-    turns = filter_demonstrations("audio1", pool, near_duplicates)
-
-    assert_that(turns).is_length(1)
-    assert_that(turns[0].assistant_text).is_equal_to("H")
+def test_retrieval_candidates_come_only_from_the_held_out_split(patched_icbhi, icbhi_config):
+    pool = build_icbhi_neighbor_pool(icbhi_config, meta(few_shot_mode="rag", rag_mapping_file="m.json"))
+    assert_that(set(pool)).is_equal_to(set(ICBHI_DEMO_IDS))
 
 
-@pytest.mark.parametrize("shot_ids", [{"audio1"}, {"audio3"}])
-def test_leaking_demonstrations_raise(shot_ids):
-    assert_that(validate_icbhi_demonstrations).raises(FewShotLeakageError).when_called_with(
-        "audio1", shot_ids, {"audio1": ["audio3"]}
+def test_demonstration_split_round_trips(icbhi_config):
+    split = load_demonstration_split(icbhi_config.demo_ids_file)
+    assert_that(split.held_out_ids).is_equal_to(set(ICBHI_DEMO_IDS))
+
+
+LABELS_BY_ID = {
+    "copd_clean": "COPD",
+    "copd_dup": "COPD",
+    "copd_dup_twin": "COPD",
+    "pneu": "Pneumonia",
+    "urti": "URTI",
+    "bronchiect": "Bronchiectasis",
+    "bronchiol": "Bronchiolitis",
+    "healthy": "No potential disease detected",
+    "asthma": "Asthma",
+}
+NEAR_DUPLICATES = {"copd_dup": ["copd_dup_twin"], "copd_dup_twin": ["copd_dup"]}
+
+
+def test_selection_takes_one_demonstration_per_primary_class():
+    split = select_demonstration_split(LABELS_BY_ID, NEAR_DUPLICATES)
+
+    chosen_labels = [LABELS_BY_ID[item_id] for item_id in split.demonstration_ids]
+    assert_that(chosen_labels).is_equal_to(list(ICBHI_PRIMARY_LABELS))
+    assert_that(split.demonstration_ids).does_not_contain("asthma")
+
+
+def test_selection_prefers_clips_without_near_duplicates():
+    split = select_demonstration_split(LABELS_BY_ID, NEAR_DUPLICATES)
+    assert_that(split.demonstration_ids).contains("copd_clean")
+    assert_that(split.excluded_near_duplicate_ids).is_empty()
+
+
+def test_a_chosen_demonstrations_near_duplicates_are_held_out_too():
+    only_duplicated_copd = {k: v for k, v in LABELS_BY_ID.items() if k != "copd_clean"}
+
+    split = select_demonstration_split(only_duplicated_copd, NEAR_DUPLICATES)
+
+    chosen_copd = next(i for i in split.demonstration_ids if LABELS_BY_ID[i] == "COPD")
+    assert_that(split.excluded_near_duplicate_ids).is_equal_to(NEAR_DUPLICATES[chosen_copd])
+    assert_that(split.held_out_ids).contains("copd_dup", "copd_dup_twin")
+
+
+def test_selection_is_deterministic():
+    first = select_demonstration_split(LABELS_BY_ID, NEAR_DUPLICATES)
+    second = select_demonstration_split(LABELS_BY_ID, NEAR_DUPLICATES)
+    assert_that(first).is_equal_to(second)
+
+
+def test_selection_fails_when_a_primary_class_has_no_items():
+    without_urti = {k: v for k, v in LABELS_BY_ID.items() if v != "URTI"}
+    assert_that(select_demonstration_split).raises(DatasetIntegrityError).when_called_with(without_urti, {})
+
+
+def test_overlapping_demonstrations_raise():
+    assert_that(validate_demonstration_disjointness).raises(FewShotLeakageError).when_called_with(
+        {"audio1", "audio2"}, {"audio2"}
     )
 
 
-def test_clean_demonstrations_pass():
-    validate_icbhi_demonstrations("audio1", {"audio2"}, {"audio1": ["audio3"]})
+def test_disjoint_demonstrations_pass():
+    validate_demonstration_disjointness({"audio1", "audio2"}, {"audio4"})
+
+
+def test_num_samples_counts_scored_items_not_raw_rows(mocker, icbhi_config):
+    """With the held-out row first, truncating raw rows would score one item fewer than asked."""
+    held_out_first = [ICBHI_ROWS[-1], *ICBHI_ROWS[:-1]]
+    mocker.patch("speech_processing.data.icbhi._load_icbhi_frame", return_value=pd.DataFrame(held_out_first))
+
+    items = load_icbhi_requests(icbhi_config.model_copy(update={"num_samples": 2}), meta())
+
+    assert_that([req.metadata.item_id for req, _ in items]).is_equal_to(ICBHI_EVAL_IDS[:2])

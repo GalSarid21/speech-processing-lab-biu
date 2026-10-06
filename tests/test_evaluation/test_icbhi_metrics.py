@@ -84,3 +84,37 @@ def test_stability_covers_the_icbhi_fields(field):
 
     assert_that(report).contains_key(field)
     assert_that(report).does_not_contain_key("classification_report")
+
+
+ASTHMA = "Asthma"
+LRTI = "LRTI"
+
+
+def test_rare_classes_are_answered_but_excluded_from_the_primary_average():
+    """Two COPD items right, one Asthma item wrong. Asthma has 1 item in the real data, so letting it
+    carry 1/K of the macro average would let a single prediction move the primary metric 12.5 pt."""
+    evaluations = [response(COPD, letter_of(COPD)), response(COPD, letter_of(COPD)), response(ASTHMA, letter_of(COPD))]
+
+    metrics = calculate_icbhi_metrics(evaluations)
+
+    assert_that(metrics.balanced_accuracy_pct).is_close_to(100.0, 0.01)  # COPD only
+    assert_that(metrics.balanced_accuracy_all_classes_pct).is_close_to(50.0, 0.01)  # COPD + Asthma
+    assert_that(metrics.accuracy_pct).is_close_to(66.67, 0.01)  # every item still counts here
+    assert_that(metrics.chance_balanced_acc_pct).is_close_to(100.0, 0.01)  # one primary class present
+
+
+def test_always_copd_scores_chance_on_the_primary_metric():
+    """The answer to "guessing COPD pays off": on balanced accuracy it pays exactly chance."""
+    evaluations = [response(label, letter_of(COPD)) for label in (COPD, COPD, COPD, HEALTHY, PNEUMONIA, LRTI)]
+
+    metrics = calculate_icbhi_metrics(evaluations)
+
+    assert_that(metrics.accuracy_pct).is_close_to(50.0, 0.01)
+    assert_that(metrics.balanced_accuracy_pct).is_close_to(metrics.chance_balanced_acc_pct, 0.01)
+
+
+def test_macro_f1_ignores_classes_that_never_occur():
+    """A perfect run over three classes used to report macro-F1 37.5, because the five absent
+    labels each contributed an F1 of zero."""
+    metrics = calculate_icbhi_metrics([response(label, letter_of(label)) for label in (COPD, HEALTHY, PNEUMONIA)])
+    assert_that(metrics.macro_f1_pct).is_close_to(100.0, 0.01)

@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 from assertpy import assert_that
 from loguru import logger
@@ -217,11 +218,69 @@ def test_icbhi_summary_uses_the_icbhi_subset_columns(analyze, tmp_path, icbhi_ru
     row = summary_df.iloc[0]
 
     assert_that(row["Experiment"]).is_equal_to("audio_features")
-    assert_that(summary_df.columns.tolist()).contains("metadata-solvable acc (n)", "audio-dependent acc (n)")
+    assert_that(summary_df.columns.tolist()).contains(
+        "BA (majority)", "BA 95% CI", "Δ BA vs base", "p (perm.)", "metadata-solvable BA (n)", "audio-dependent BA (n)"
+    )
+    assert_that(summary_df.columns.tolist()).does_not_contain("p")  # McNemar is the MMAR test
     for subset in analyze.subsets_for(analyze.ICBHI):
-        assert_that(row[f"{subset} acc (n)"]).does_not_contain("(0)")
+        assert_that(row[f"{subset} BA (n)"]).does_not_contain("(0)")
 
 
 @pytest.mark.parametrize("dataset, expected", [("mmar", "transcript-solvable"), ("icbhi", "metadata-solvable")])
 def test_subsets_for(analyze, dataset, expected):
     assert_that(analyze.subsets_for(dataset)).is_equal_to((expected, "audio-dependent"))
+
+
+PRIMARY_CLASSES = {
+    "c1": "COPD",
+    "c2": "COPD",
+    "c3": "COPD",
+    "c4": "COPD",
+    "h1": "No potential disease detected",
+    "h2": "No potential disease detected",
+    "p1": "Pneumonia",
+    "a1": "Asthma",
+}
+
+
+def test_always_copd_is_chance_under_balanced_accuracy(analyze):
+    """Right on every COPD item, wrong on everything else: 50% accuracy, chance on BA."""
+    correct = {item_id: label == "COPD" for item_id, label in PRIMARY_CLASSES.items()}
+
+    assert_that(analyze.balanced_accuracy(correct, PRIMARY_CLASSES)).is_close_to(100 / 3, 0.01)
+
+
+def test_rare_classes_do_not_enter_the_primary_average(analyze):
+    correct = {item_id: label != "Asthma" for item_id, label in PRIMARY_CLASSES.items()}
+
+    assert_that(analyze.balanced_accuracy(correct, PRIMARY_CLASSES)).is_close_to(100.0, 0.01)
+
+
+def test_balanced_accuracy_is_unavailable_without_primary_labels(analyze):
+    assert_that(analyze.balanced_accuracy({"x": True}, {"x": "Unknown"})).is_none()
+
+
+def test_stratified_bootstrap_is_deterministic_and_brackets_the_estimate(analyze):
+    rng = np.random.default_rng(1)
+    classes = {f"i{n}": ("COPD", "Pneumonia", "URTI")[n % 3] for n in range(90)}
+    correct = {item_id: bool(rng.random() < 0.6) for item_id in classes}
+
+    first = analyze.stratified_bootstrap_ba_ci(correct, classes)
+    point = analyze.balanced_accuracy(correct, classes)
+
+    assert_that(first).is_equal_to(analyze.stratified_bootstrap_ba_ci(correct, classes))
+    assert_that(first[0]).is_less_than(point)
+    assert_that(first[1]).is_greater_than(point)
+
+
+def test_permutation_test_returns_one_for_identical_systems(analyze):
+    correct = {item_id: True for item_id in PRIMARY_CLASSES}
+    assert_that(analyze.paired_permutation_ba(correct, correct, PRIMARY_CLASSES)).is_equal_to(1.0)
+
+
+def test_permutation_test_detects_a_large_balanced_accuracy_gap(analyze):
+    classes = {f"i{n}": ("COPD", "Pneumonia", "URTI")[n % 3] for n in range(120)}
+    ours = dict.fromkeys(classes, True)
+    baseline = {item_id: label == "COPD" for item_id, label in classes.items()}
+
+    assert_that(analyze.paired_permutation_ba(ours, baseline, classes)).is_less_than(0.01)

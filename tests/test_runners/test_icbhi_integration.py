@@ -20,6 +20,7 @@ from speech_processing.models.presentation import (
 from speech_processing.pipelines.aggregation import IdentityAggregator, ShuffledMajorityVoteAggregator
 from speech_processing.pipelines.judge import EvaluationPipeline, JudgePipeline, ParserOnlyPipeline
 from speech_processing.runners.icbhi import ExperimentVersion, run_icbhi
+from speech_processing.utils.exceptions import DatasetIntegrityError, FewShotLeakageError
 
 EVAL_ID = "audio1"
 SHOT_ID = "audio2"
@@ -55,7 +56,6 @@ def mocked_runner(mocker):
         "speech_processing.runners.icbhi.build_icbhi_neighbor_pool",
         return_value={SHOT_ID: mocker.MagicMock()},
     )
-    mocker.patch("speech_processing.runners.icbhi.load_near_duplicates", return_value={})
     mocker.patch("speech_processing.runners.icbhi._load_icbhi_rag_mapping", return_value={EVAL_ID: [SHOT_ID]})
     mocker.patch(
         "speech_processing.runners.icbhi.load_respiratory_evidence",
@@ -162,3 +162,38 @@ def test_no_judge_flag_selects_the_evaluation_pipeline(
 @pytest.mark.parametrize("pipeline_cls", [JudgePipeline, ParserOnlyPipeline])
 def test_both_evaluation_pipelines_share_the_same_contract(pipeline_cls):
     assert_that(issubclass(pipeline_cls, EvaluationPipeline)).is_true()
+
+
+def test_sample_ids_file_is_rejected_rather_than_ignored(mocked_runner, tmp_path):
+    """V4 fixes the evaluation set. Honouring this flag would silently change it, which is the
+    exact defect that made the V1 and V3 result sets incomparable."""
+    args = build_args("r0", tmp_path)
+    args.sample_ids_file = "data/icbhi_experiment_sample_ids.txt"
+
+    assert_that(run_icbhi).raises(DatasetIntegrityError).when_called_with(args)
+
+
+def test_num_samples_is_still_allowed_for_smoke_tests(mocked_runner, tmp_path):
+    args = build_args("r0", tmp_path)
+    args.num_samples = 5
+
+    run_icbhi(args)
+
+    assert_that(os.listdir(tmp_path)).is_not_empty()
+
+
+def test_a_retrieval_map_pointing_at_evaluation_items_is_rejected(mocked_runner, mocker, tmp_path):
+    """A kNN file built before the held-out split existed retrieves scored items with their labels.
+    It must fail loudly, not quietly yield fewer shots."""
+    mocker.patch("speech_processing.runners.icbhi._load_icbhi_rag_mapping", return_value={EVAL_ID: [EVAL_ID]})
+
+    assert_that(run_icbhi).raises(FewShotLeakageError).when_called_with(build_args("a6b", tmp_path))
+
+
+def test_few_shot_demonstrations_never_overlap_the_scored_items(mocked_runner, mocker, tmp_path):
+    mocker.patch(
+        "speech_processing.runners.icbhi.build_icbhi_few_shot_pool",
+        return_value={EVAL_ID: mocker.MagicMock()},
+    )
+
+    assert_that(run_icbhi).raises(FewShotLeakageError).when_called_with(build_args("r6", tmp_path))

@@ -129,7 +129,16 @@ ICBHI_ROWS = [
         "instruction": ICBHI_INSTRUCTION_TEMPLATES[2],
         "audio": {"bytes": b"RIFFfake-pneumonia"},
     },
+    # Held out of evaluation by ICBHI_DEMO_SPLIT below: a demonstration, never a scored item.
+    {
+        "file": "audio4.wav",
+        "label": "URTI",
+        "instruction": ICBHI_INSTRUCTION_TEMPLATES[1],
+        "audio": {"bytes": b"RIFFfake-urti"},
+    },
 ]
+ICBHI_DEMO_IDS = ["audio4"]
+ICBHI_EVAL_IDS = ["audio1", "audio2", "audio3"]
 
 
 @pytest.fixture
@@ -165,8 +174,8 @@ def icbhi_config(tmp_path):
     rag_file = tmp_path / "icbhi_rag.json"
     rag_file.write_text(json.dumps({"audio1": ["audio2", "audio3"]}))
 
-    near_duplicates_file = tmp_path / "near_duplicates.json"
-    near_duplicates_file.write_text(json.dumps({"audio1": ["audio3"]}))
+    demo_ids_file = tmp_path / "icbhi_demo_ids.json"
+    demo_ids_file.write_text(json.dumps({"demonstration_ids": ICBHI_DEMO_IDS, "excluded_near_duplicate_ids": []}))
 
     return DatasetConfig(
         dataset_id="test/icbhi",
@@ -176,7 +185,7 @@ def icbhi_config(tmp_path):
         respiratory_features_file=str(features_file),
         audio_tags_file=str(tags_file),
         neighbor_labels_file=str(neighbors_file),
-        near_duplicates_file=str(near_duplicates_file),
+        demo_ids_file=str(demo_ids_file),
     )
 
 

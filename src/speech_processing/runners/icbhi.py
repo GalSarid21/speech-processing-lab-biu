@@ -5,8 +5,15 @@ Two tracks run for every family of techniques:
 * metadata-blind (primary) - the prompt never states the chest location or the acquisition mode.
   On ICBHI the acquisition mode is tied to the recording site and therefore to the diagnosis, so a
   metadata-aware prompt can be "solved" without listening at all.
-* metadata-aware (secondary, marked with the AWARE suffix) - reported only alongside the text-only
-  control that measures how much of the score the metadata alone buys.
+* metadata-aware (secondary, marked with the AWARE suffix) - reported only alongside the control
+  that measures how much of the score the metadata alone buys.
+
+Every control is an audio ablation of a reported arm: the same model and the same prompt, with the
+recording swapped for duration-matched silence. Whatever such a control scores, the model scored
+without hearing anything, so the gap to its parent arm is exactly what the audio contributed.
+
+All experiments score the same items: every row except the held-out demonstration split fixed by
+scripts/diagnose_icbhi.py.
 """
 
 import json
@@ -26,11 +33,9 @@ from speech_processing.data.icbhi import (
     RespiratoryEvidence,
     build_icbhi_few_shot_pool,
     build_icbhi_neighbor_pool,
-    filter_demonstrations,
     load_icbhi_requests,
-    load_near_duplicates,
     load_respiratory_evidence,
-    validate_icbhi_demonstrations,
+    validate_demonstration_disjointness,
 )
 from speech_processing.evaluation.metrics import calculate_icbhi_metrics
 from speech_processing.evaluation.stability import calculate_stability
@@ -112,7 +117,8 @@ _FEW_SHOT_PROMPT = (
     "Here are reference lung auscultation recordings with their diagnoses. Listen to them, then choose the "
     f"diagnosis of the final recording. {ENGLISH_ONLY} {ANSWER_WITH_LETTER}"
 )
-# Frequencies of the demonstration pool, never of the evaluation set.
+# Kept only as a record of what r8 asked. These figures have no source, which is why r8 is
+# deprecated (see R8_DEPRECATION); do not reuse them.
 _PRIOR_PROMPT = (
     "In the reference collection these diagnoses occur at roughly the following rates: COPD 38%, "
     "No potential disease detected 18%, URTI 15%, Pneumonia 13%, Bronchiectasis 10%, Bronchiolitis 5%, "
@@ -164,20 +170,27 @@ _TEXT_ONLY_METADATA_PROMPT = (
 )
 
 # ---------------------------------------------------------------------------------------------
-# Scope. With n=174 the 95% CI on accuracy is about +-7 points, so every additional arm compared
-# against one baseline buys another chance of a spurious "significant" result. The reported set is
-# the `core` tier: the two controls, the blind/metadata-aware baseline pair, two classic-prompting
-# representatives, and the two arms of each pre-registered comparison
-#   (1) a1b vs r0   (2) best a3* vs r0   (3) a5c vs a5a.
-# Everything else is `future_work`: implemented, tested and runnable with --experiment, but not
-# part of the reported results. Nothing here is deprecated - these are extensions, not mistakes.
+# Scope. The primary metric's 95% CI is about +-8 points, so every additional arm compared against
+# one baseline buys another chance of a spurious "significant" result. The reported set is the
+# `core` tier:
+#   controls     c1 (silence prior), c3 (silence + metadata), c4 (silence + features)
+#   baselines    r0 (metadata-blind), r0_aware (metadata-aware)
+#   classic      r2 (CoT), r3 (acoustic dictionary), r6 (few-shot over the held-out demonstrations)
+#   pre-registered comparisons  (1) a1b vs r0   (2) best of a3a/a3b vs r0   (3) a5c vs a5a
+# Everything else is `future_work`: implemented, tested and runnable with --experiment, but not part
+# of the reported results. Only r8 is deprecated: as written it was never a valid experiment.
 # ---------------------------------------------------------------------------------------------
 FUTURE_CLASSIC_VARIANT = "Classic-prompting variant; r2 and r3 already represent this family in the reported set."
-FUTURE_FEW_SHOT_LEAKAGE = (
-    "Few-shot on ICBHI cannot be made patient-disjoint in this dataset packaging, so any gain is "
-    "only an upper bound. Needs the original 920-recording database first (see data/README.md)."
+FUTURE_COT_FEW_SHOT = (
+    "Chain-of-thought variant of r6. CoT is already reported through r2, so this adds a second CoT "
+    "comparison without a pre-registered question behind it."
 )
-FUTURE_T1_VARIANT = "Measured-feature variant; a1b carries the hypothesis and a1c its interpreting control."
+FUTURE_CROSS_MODEL_CONTROL = (
+    "Text-only control on a different model (Gemma). A gap between it and a Voxtral arm mixes the "
+    "contribution of the audio with the difference between two models; the same-model silence "
+    "controls c3 and c4 answer the question cleanly."
+)
+FUTURE_T1_VARIANT = "Measured-feature variant; a1b carries the hypothesis and c4 is its same-model control."
 FUTURE_METADATA_AWARE = "Metadata-aware duplicate; r0_aware already quantifies what the recording metadata alone buys."
 FUTURE_SECOND_TOOL = (
     "A second evidence source on top of A1. Worth testing once the respiratory detectors have been "
@@ -188,12 +201,19 @@ FUTURE_PRESENTATION = (
 )
 FUTURE_CALIBRATION_VARIANT = "Calibration variant; a5a and a5c are the two arms of the pre-registered comparison."
 FUTURE_RETRIEVAL = (
-    "Retrieval over the same 174 clips shares the patient-leakage problem as few-shot, so it is "
-    "parked behind the same prerequisite."
+    "Retrieval needs a candidate pool disjoint from the evaluation set, or the model is shown other "
+    "scored items with their labels. In this packaging that pool is only the handful of held-out "
+    "demonstrations, too few to retrieve from meaningfully. Needs the original 920-recording "
+    "database (see data/README.md)."
 )
 FUTURE_CONSISTENCY = (
     "Choice-order robustness. A good appendix result, but it multiplies the run by 5 for a "
     "measurement that does not bear on the three pre-registered comparisons."
+)
+R8_DEPRECATION = (
+    "The prompt quoted class frequencies that came from no real source. There is no prior that is "
+    "both external to the evaluation set and verified, and quoting the evaluation set's own "
+    "frequencies would leak its label prior into the prompt."
 )
 
 NUM_ICBHI_LABELS = len(ICBHI_LABELS)
@@ -219,6 +239,26 @@ class ExperimentVersion(Enum):
         batch_size=4,
         text_only=True,
         include_recording_metadata=True,
+        tier="future_work",
+        future_work_reason=FUTURE_CROSS_MODEL_CONTROL,
+    )
+    c3 = ExperimentMeta(
+        dataset=ICBHI,
+        experiment_name="silence_metadata_aware",
+        prompt=BASELINE_PROMPT,
+        max_new_tokens=32,
+        batch_size=8,
+        include_recording_metadata=True,
+        replace_audio_with_silence=True,
+    )
+    c4 = ExperimentMeta(
+        dataset=ICBHI,
+        experiment_name="silence_features_dictionary",
+        prompt=_FEATURES_DICTIONARY_PROMPT,
+        max_new_tokens=32,
+        batch_size=8,
+        inject_acoustic_features=True,
+        replace_audio_with_silence=True,
     )
 
     # ---------------------------------------------------------
@@ -276,8 +316,6 @@ class ExperimentVersion(Enum):
         max_new_tokens=32,
         batch_size=4,
         few_shot_mode="audio",
-        tier="future_work",
-        future_work_reason=FUTURE_FEW_SHOT_LEAKAGE,
     )
     r7 = ExperimentMeta(
         dataset=ICBHI,
@@ -288,7 +326,7 @@ class ExperimentVersion(Enum):
         few_shot_mode="audio",
         use_cot=True,
         tier="future_work",
-        future_work_reason=FUTURE_FEW_SHOT_LEAKAGE,
+        future_work_reason=FUTURE_COT_FEW_SHOT,
     )
     r8 = ExperimentMeta(
         dataset=ICBHI,
@@ -296,8 +334,8 @@ class ExperimentVersion(Enum):
         prompt=_PRIOR_PROMPT,
         max_new_tokens=32,
         batch_size=8,
-        tier="future_work",
-        future_work_reason=FUTURE_CLASSIC_VARIANT,
+        deprecated=True,
+        deprecation_reason=R8_DEPRECATION,
     )
 
     # ---------------------------------------------------------
@@ -329,6 +367,8 @@ class ExperimentVersion(Enum):
         batch_size=4,
         text_only=True,
         inject_acoustic_features=True,
+        tier="future_work",
+        future_work_reason=FUTURE_CROSS_MODEL_CONTROL,
     )
     a1d = ExperimentMeta(
         dataset=ICBHI,
@@ -540,36 +580,37 @@ def _load_icbhi_rag_mapping(path: str) -> dict[str, list[str]]:
 def attach_few_shots(
     items: list[tuple[BaseRequest, str]], config: AppConfig, meta: ExperimentMeta
 ) -> list[tuple[BaseRequest, str]]:
-    """Attaches one demonstration per class, excluding the item itself and its near-duplicates.
+    """Attaches demonstrations drawn only from the held-out split, never from the evaluation set.
 
-    Patient ids are absent from this packaging, so demonstrations may still share a patient with the
-    evaluation item. Few-shot numbers are therefore an upper bound; see data/README.md.
+    Patient ids are absent from this packaging, so a demonstration may still share a patient with an
+    evaluation item; few-shot numbers carry that caveat. See data/README.md.
     """
     if meta.few_shot_mode == "none":
         return items
 
-    near_duplicates = load_near_duplicates(config.dataset.near_duplicates_file)
+    eval_ids = {req.metadata.item_id for req, _ in items if req.metadata}
 
     if meta.few_shot_mode == "rag":
         mapping = _load_icbhi_rag_mapping(meta.rag_mapping_file)
+        retrieved = {shot_id for item_id in eval_ids for shot_id in mapping.get(item_id, [])}
+        # Fail on a mapping that retrieves evaluation items rather than quietly dropping them: a stale
+        # kNN file built before the held-out split existed would otherwise just yield fewer shots.
+        validate_demonstration_disjointness(eval_ids, retrieved)
+
         pool = build_icbhi_neighbor_pool(config.dataset, meta)
         attached = []
         for req, ground_truth in items:
             item_id = req.metadata.item_id if req.metadata else ""
             shot_ids = [sid for sid in mapping.get(item_id, []) if sid in pool][:MAX_RAG_SHOTS]
-            validate_icbhi_demonstrations(item_id, set(shot_ids), near_duplicates)
             turns = [pool[sid] for sid in shot_ids]
             logger.info(f"Item {item_id}: attached {len(turns)} retrieved demonstrations.")
             attached.append((req.model_copy(update={"few_shot_turns": turns}), ground_truth))
         return attached
 
     pool = build_icbhi_few_shot_pool(config.dataset, meta)
-    attached = []
-    for req, ground_truth in items:
-        item_id = req.metadata.item_id if req.metadata else ""
-        turns = filter_demonstrations(item_id, pool, near_duplicates)
-        attached.append((req.model_copy(update={"few_shot_turns": turns}), ground_truth))
-    return attached
+    validate_demonstration_disjointness(eval_ids, set(pool))
+    turns = list(pool.values())
+    return [(req.model_copy(update={"few_shot_turns": turns}), ground_truth) for req, ground_truth in items]
 
 
 def _cycle_spans_by_path(config: AppConfig, items: list[tuple[BaseRequest, str]]) -> dict[str, list]:
@@ -611,7 +652,19 @@ def build_aggregator(meta: ExperimentMeta) -> ResponseAggregator:
     return IdentityAggregator()
 
 
+SAMPLE_IDS_REJECTED = (
+    "ICBHI V4 evaluates a fixed set - every row except the held-out demonstrations - identically for "
+    "every experiment, so "
+    "--sample-ids-file is not honoured: passing it would silently evaluate a different set than "
+    "you asked for. That is exactly what made the V1 and V3 numbers incomparable. Drop the flag, "
+    "or use --num-samples for a smoke test."
+)
+
+
 def run_icbhi(args):
+    if getattr(args, "sample_ids_file", None):
+        raise DatasetIntegrityError(SAMPLE_IDS_REJECTED)
+
     meta = ExperimentVersion.get_version(args.experiment).value
     config = create_icbhi_config(args, meta)
 

@@ -17,9 +17,14 @@ class MMARAggregateMetrics(BaseModel):
 
 
 class ICBHIAggregateMetrics(BaseModel):
-    """Closed-set ICBHI metrics. Balanced accuracy is primary; every report carries its own baselines."""
+    """Closed-set ICBHI metrics. Balanced accuracy is primary; every report carries its own baselines.
+
+    `balanced_accuracy_pct` averages over the primary classes only; the all-classes variant is kept as
+    a secondary figure so the effect of the two tiny classes stays visible.
+    """
 
     balanced_accuracy_pct: float
+    balanced_accuracy_all_classes_pct: float
     macro_f1_pct: float
     accuracy_pct: float
     majority_baseline_pct: float

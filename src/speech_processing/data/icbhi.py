@@ -11,8 +11,8 @@ Two things make this dataset different from MMAR and drive the design here:
 
 import json
 import os
+import random
 import re
-from collections import Counter
 
 import pandas as pd
 from datasets import Audio, load_dataset
@@ -52,6 +52,21 @@ ICBHI_LABELS: tuple[str, ...] = (
     "No potential disease detected",
 )
 HEALTHY_LABEL = "No potential disease detected"
+
+# The classes the primary metric averages over. Asthma (1 item) and LRTI (2 items) stay in the
+# answer options, so the task is still the 8-way ICBHI diagnosis, but they are excluded from the
+# macro average: with them in, a single Asthma prediction moves balanced accuracy by 12.5 points and
+# the 95% CI roughly doubles (about +-15 points instead of +-8). Fixed here rather than derived
+# from support counts, so the choice is pre-registered and cannot drift with the data.
+ICBHI_PRIMARY_LABELS: tuple[str, ...] = (
+    "COPD",
+    "Pneumonia",
+    "URTI",
+    "Bronchiectasis",
+    "Bronchiolitis",
+    "No potential disease detected",
+)
+DEMONSTRATION_SEED = 2017
 
 ICBHI_FILE_COLUMN = "file"
 ICBHI_LABEL_COLUMN = "label"
@@ -122,9 +137,13 @@ def _audio_bytes_of(row) -> bytes | None:
     return None
 
 
+def _item_id_of(file_name: str) -> str:
+    return os.path.splitext(os.path.basename(file_name))[0]
+
+
 def _parse_icbhi_row(row, cache_dir: str) -> ICBHIItem:
     file_name = str(row[ICBHI_FILE_COLUMN])
-    item_id = os.path.splitext(os.path.basename(file_name))[0]
+    item_id = _item_id_of(file_name)
     label = str(row[ICBHI_LABEL_COLUMN]).strip()
 
     if label not in ICBHI_LABELS:
@@ -226,17 +245,21 @@ def _build_instruction(meta: ExperimentMeta, context: str, choices: list[str]) -
 
 
 def load_icbhi_requests(config: DatasetConfig, meta: ExperimentMeta | None = None) -> list[tuple[BaseRequest, str]]:
-    """Builds one request per ICBHI row, in dataset order, over the whole split.
+    """Builds one request per evaluation row, in dataset order.
 
-    There is no stratified padding sampler: the evaluation set is every row, identical for every
-    experiment, so results are comparable. `num_samples` only truncates, for smoke tests.
+    The evaluation set is every row except the fixed held-out demonstration split, and it is the
+    same for every experiment - zero-shot ones included - so a few-shot vs zero-shot difference is
+    never partly a different-items difference. `num_samples` only truncates, for smoke tests.
     """
+    held_out = load_demonstration_split(config.demo_ids_file).held_out_ids
     df = _load_icbhi_frame(config)
     cache_dir = config.audio_base_dir or ICBHI_AUDIO_CACHE_DIR
 
+    # Remove the held-out split before truncating, so --num-samples N means N scored items.
+    df = df[~df[ICBHI_FILE_COLUMN].astype(str).map(_item_id_of).isin(held_out)]
     if config.num_samples is not None and config.num_samples < len(df):
         logger.warning(
-            f"Truncating ICBHI to the first {config.num_samples} of {len(df)} rows. "
+            f"Truncating ICBHI to the first {config.num_samples} of {len(df)} evaluation rows. "
             "This is a smoke test, not the evaluation protocol."
         )
         df = df.head(config.num_samples)
@@ -326,13 +349,68 @@ def load_icbhi_requests(config: DatasetConfig, meta: ExperimentMeta | None = Non
     return results
 
 
-def load_near_duplicates(path: str | None) -> dict[str, list[str]]:
-    """Clips cut from the same source recording. Excluded from a test item's demonstrations."""
+class DemonstrationSplit(BaseModel):
+    """The fixed set of items held out of evaluation so they can serve as demonstrations.
+
+    Written once by `scripts/diagnose_icbhi.py` and read by every ICBHI experiment, so the
+    evaluation set is identical across experiments and auditable after the fact.
+    """
+
+    demonstration_ids: list[str]
+    excluded_near_duplicate_ids: list[str] = []
+    seed: int = DEMONSTRATION_SEED
+
+    @property
+    def held_out_ids(self) -> set[str]:
+        """Everything kept out of evaluation: the demonstrations and anything cut from the same recording."""
+        return set(self.demonstration_ids) | set(self.excluded_near_duplicate_ids)
+
+
+def select_demonstration_split(
+    labels_by_id: dict[str, str],
+    near_duplicates: dict[str, list[str]],
+    labels: tuple[str, ...] = ICBHI_PRIMARY_LABELS,
+    seed: int = DEMONSTRATION_SEED,
+) -> DemonstrationSplit:
+    """Picks one demonstration per primary class, preferring clips with no near-duplicates.
+
+    A demonstration's near-duplicates are held out of evaluation as well; otherwise the model would
+    be scored on a near-copy of a labelled example it was just shown.
+    """
+    rng = random.Random(seed)
+    chosen: list[str] = []
+
+    for label in labels:
+        candidates = sorted(item_id for item_id, item_label in labels_by_id.items() if item_label == label)
+        if not candidates:
+            raise DatasetIntegrityError(f"No item of class {label!r} is available as a demonstration.")
+        rng.shuffle(candidates)
+        # Stable sort: among equally clean candidates, the seeded shuffle decides.
+        candidates.sort(key=lambda item_id: len(near_duplicates.get(item_id, [])))
+        chosen.append(candidates[0])
+
+    excluded = {duplicate for item_id in chosen for duplicate in near_duplicates.get(item_id, [])} - set(chosen)
+    return DemonstrationSplit(demonstration_ids=chosen, excluded_near_duplicate_ids=sorted(excluded), seed=seed)
+
+
+def load_demonstration_split(path: str | None) -> DemonstrationSplit:
+    """Missing is fatal: running without it would silently evaluate a different item set."""
     if not path or not os.path.exists(path):
-        logger.warning(f"No near-duplicate file at {path}; demonstrations are filtered by item id only.")
-        return {}
+        raise DatasetIntegrityError(
+            f"Demonstration split not found: {path}. Run scripts/diagnose_icbhi.py first - it fixes "
+            "the held-out demonstration items, and with them the evaluation set every experiment uses."
+        )
     with open(path) as f:
-        return json.load(f)
+        return DemonstrationSplit.model_validate_json(f.read())
+
+
+def validate_demonstration_disjointness(eval_ids: set[str], demonstration_ids: set[str]) -> None:
+    """A labelled demonstration may never also be an item that gets scored."""
+    leaked = eval_ids & demonstration_ids
+    if leaked:
+        raise FewShotLeakageError(
+            f"{len(leaked)} demonstration items are also evaluation items (e.g. {sorted(leaked)[:3]})."
+        )
 
 
 def _build_icbhi_few_shot_turn(item: ICBHIItem, meta: ExperimentMeta, rationale: str | None) -> FewShotTurn:
@@ -355,57 +433,46 @@ def _build_icbhi_few_shot_turn(item: ICBHIItem, meta: ExperimentMeta, rationale:
 MAX_DEMONSTRATIONS = VOXTRAL_MAX_AUDIOS_PER_PROMPT - 1
 
 
-def _load_all_items(config: DatasetConfig) -> list[ICBHIItem]:
+def _load_items_by_id(config: DatasetConfig) -> dict[str, ICBHIItem]:
     cache_dir = config.audio_base_dir or ICBHI_AUDIO_CACHE_DIR
-    return [_parse_icbhi_row(row, cache_dir) for _, row in _load_icbhi_frame(config).iterrows()]
+    items = (_parse_icbhi_row(row, cache_dir) for _, row in _load_icbhi_frame(config).iterrows())
+    return {item.item_id: item for item in items}
 
 
-def build_icbhi_few_shot_pool(
-    config: DatasetConfig, meta: ExperimentMeta, num_per_class: int = 1
-) -> dict[str, FewShotTurn]:
-    """One demonstration per class, drawn from the same split, capped by the audio-per-prompt limit.
+def build_icbhi_few_shot_pool(config: DatasetConfig, meta: ExperimentMeta) -> dict[str, FewShotTurn]:
+    """The held-out demonstrations, one per primary class, in the split's fixed order.
 
-    There are 8 labels and a prompt can hold 8 clips including the test recording, so the rarest
-    classes are dropped first when the cap binds.
-
-    Patient ids are not published in this packaging, so patient overlap with the evaluation items
-    cannot be ruled out: any few-shot gain measured this way is an upper bound. See data/README.md
-    for the patient-disjoint alternative.
+    They are disjoint from the evaluation set by construction. Patient ids are not published in this
+    packaging, so a demonstration may still share a patient with an evaluation item; see
+    data/README.md for the patient-disjoint alternative.
     """
-    items = _load_all_items(config)
-    class_counts = Counter(item.label for item in items)
-    # Most frequent classes first, so the cap drops the rarest.
-    kept_classes = {label for label, _ in class_counts.most_common(MAX_DEMONSTRATIONS // num_per_class)}
+    split = load_demonstration_split(config.demo_ids_file)
+    if len(split.demonstration_ids) > MAX_DEMONSTRATIONS:
+        raise DatasetIntegrityError(
+            f"{len(split.demonstration_ids)} demonstrations exceed the {MAX_DEMONSTRATIONS} that fit in one prompt."
+        )
 
-    pool: dict[str, FewShotTurn] = {}
-    per_class: dict[str, int] = {}
-    for item in items:
-        if item.label not in kept_classes or per_class.get(item.label, 0) >= num_per_class:
-            continue
-        per_class[item.label] = per_class.get(item.label, 0) + 1
-        pool[item.item_id] = _build_icbhi_few_shot_turn(item, meta, rationale=None)
+    items = _load_items_by_id(config)
+    missing = [item_id for item_id in split.demonstration_ids if item_id not in items]
+    if missing:
+        raise DatasetIntegrityError(f"Demonstration ids not found in the dataset: {missing}")
 
-    dropped = sorted(set(class_counts) - kept_classes)
-    if dropped:
-        logger.warning(f"Dropped the rarest classes from the demonstration pool to fit the audio limit: {dropped}")
-    logger.info(f"Built an ICBHI demonstration pool of {len(pool)} items over {len(per_class)} classes.")
-    return pool
+    logger.info(f"Using {len(split.demonstration_ids)} held-out ICBHI demonstrations.")
+    return {
+        item_id: _build_icbhi_few_shot_turn(items[item_id], meta, rationale=None) for item_id in split.demonstration_ids
+    }
 
 
 def build_icbhi_neighbor_pool(config: DatasetConfig, meta: ExperimentMeta) -> dict[str, FewShotTurn]:
-    """Every item as a potential demonstration, for the kNN-retrieved few-shot track (A6b)."""
-    return {item.item_id: _build_icbhi_few_shot_turn(item, meta, rationale=None) for item in _load_all_items(config)}
+    """Every held-out item as a retrieval candidate for the kNN few-shot track (A6b).
 
-
-def filter_demonstrations(
-    item_id: str, pool: dict[str, FewShotTurn], near_duplicates: dict[str, list[str]]
-) -> list[FewShotTurn]:
-    """Drops the item itself and anything cut from the same recording."""
-    excluded = {item_id, *near_duplicates.get(item_id, [])}
-    return [turn for shot_id, turn in pool.items() if shot_id not in excluded]
-
-
-def validate_icbhi_demonstrations(item_id: str, shot_ids: set[str], near_duplicates: dict[str, list[str]]) -> None:
-    leaked = shot_ids & {item_id, *near_duplicates.get(item_id, [])}
-    if leaked:
-        raise FewShotLeakageError(f"Item {item_id} would be demonstrated with {sorted(leaked)}.")
+    Only held-out items qualify: retrieving from the evaluation set would show the model other scored
+    items with their labels attached.
+    """
+    held_out = load_demonstration_split(config.demo_ids_file).held_out_ids
+    items = _load_items_by_id(config)
+    return {
+        item_id: _build_icbhi_few_shot_turn(items[item_id], meta, rationale=None)
+        for item_id in sorted(held_out)
+        if item_id in items
+    }

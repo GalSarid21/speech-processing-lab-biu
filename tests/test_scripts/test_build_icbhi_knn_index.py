@@ -75,34 +75,57 @@ def test_embed_produces_a_two_dimensional_matrix(knn):
     assert_that(np.allclose(np.linalg.norm(embeddings, axis=1), 1.0)).is_true()
 
 
-def test_similarity_of_unit_rows_is_cosine(knn):
+def test_similarity_of_unit_rows_is_cosine():
     """A dot product of unit-norm rows is exactly cosine similarity; the diagonal proves it."""
     rng = np.random.default_rng(0)
     embeddings = rng.standard_normal((NUM_CLIPS, EMBED_DIM))
     embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
-    item_ids = [f"audio{i}" for i in range(NUM_CLIPS)]
-
-    neighbors = knn.nearest_neighbors(embeddings, item_ids, {}, top_k=2)
 
     similarity = embeddings @ embeddings.T
+
     assert_that(np.allclose(np.diag(similarity), 1.0)).is_true()
     assert_that(float(similarity.max())).is_less_than_or_equal_to(1.0 + 1e-9)
-    for item_id, indices in neighbors.items():
-        assert_that(indices).is_length(2)
-        assert_that(item_ids.index(item_id)).is_not_in(*indices)
+
+
+ITEM_IDS = ["eval0", "eval1", "demo0", "demo1"]
+CANDIDATES = {"demo0", "demo1"}
+
+
+def test_neighbours_come_only_from_the_held_out_candidates(knn):
+    """Retrieving from the evaluation set would hand the model other scored items' labels."""
+    rng = np.random.default_rng(0)
+    embeddings = rng.standard_normal((len(ITEM_IDS), EMBED_DIM))
+    embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
+
+    neighbors = knn.nearest_neighbors(embeddings, ITEM_IDS, CANDIDATES, {}, top_k=5)
+
+    assert_that(set(neighbors)).is_equal_to({"eval0", "eval1"})  # candidates are never queries
+    for indices in neighbors.values():
+        assert_that({ITEM_IDS[i] for i in indices}).is_subset_of(CANDIDATES)
+        assert_that(indices).is_length(len(CANDIDATES))  # top_k capped at the pool size
 
 
 def test_nearest_neighbors_excludes_near_duplicates(knn):
-    embeddings = np.eye(NUM_CLIPS, EMBED_DIM)
-    embeddings[1] = embeddings[0]  # audio1 is a copy of audio0
-    item_ids = [f"audio{i}" for i in range(NUM_CLIPS)]
+    embeddings = np.eye(len(ITEM_IDS), EMBED_DIM)
+    embeddings[2] = embeddings[0]  # demo0 is a copy of eval0
 
-    neighbors = knn.nearest_neighbors(embeddings, item_ids, {"audio0": ["audio1"]}, top_k=1)
+    neighbors = knn.nearest_neighbors(embeddings, ITEM_IDS, CANDIDATES, {"eval0": ["demo0"]}, top_k=1)
 
-    assert_that(item_ids[neighbors["audio0"][0]]).is_not_equal_to("audio1")
+    assert_that(ITEM_IDS[neighbors["eval0"][0]]).is_equal_to("demo1")
 
 
 def test_nearest_neighbors_rejects_a_non_matrix(knn):
     assert_that(knn.nearest_neighbors).raises(ValueError).when_called_with(
-        np.zeros((NUM_CLIPS, 1, EMBED_DIM)), ["a", "b", "c", "d"], {}, 2
+        np.zeros((len(ITEM_IDS), 1, EMBED_DIM)), ITEM_IDS, CANDIDATES, {}, 2
     )
+
+
+def test_missing_split_refuses_to_run(knn, tmp_path):
+    assert_that(knn.load_candidate_ids).raises(SystemExit).when_called_with(str(tmp_path / "nope.json"))
+
+
+def test_knn_control_is_scored_on_evaluation_items_only(knn):
+    labels = ["COPD", "URTI", "COPD", "URTI"]
+    neighbors = {"eval0": [2], "eval1": [2]}  # both retrieve demo0 (COPD)
+
+    assert_that(knn.knn_vote_accuracy(neighbors, labels, ITEM_IDS)).is_close_to(50.0, 0.01)

@@ -37,7 +37,7 @@ ICBHI_RESPIRATORY_FEATURES_FILE = "data/icbhi_respiratory_features.jsonl"
 ICBHI_AUDIO_TAGS_FILE = "data/icbhi_audio_tags.jsonl"
 ICBHI_NEIGHBOR_LABELS_FILE = "data/icbhi_neighbor_labels.json"
 ICBHI_RAG_MAPPING_FILE = "data/icbhi_rag_mapping.json"
-ICBHI_NEAR_DUPLICATES_FILE = "data/icbhi_near_duplicates.json"
+ICBHI_DEMO_IDS_FILE = "data/icbhi_demo_ids.json"
 
 MMAR_DATASET_ID = "BoJack/MMAR"
 MMAR_SPLIT = "test"
@@ -170,7 +170,7 @@ def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
         respiratory_features_file=ICBHI_RESPIRATORY_FEATURES_FILE,
         audio_tags_file=ICBHI_AUDIO_TAGS_FILE,
         neighbor_labels_file=ICBHI_NEIGHBOR_LABELS_FILE,
-        near_duplicates_file=ICBHI_NEAR_DUPLICATES_FILE,
+        demo_ids_file=ICBHI_DEMO_IDS_FILE,
     )
 
     text_model = None
