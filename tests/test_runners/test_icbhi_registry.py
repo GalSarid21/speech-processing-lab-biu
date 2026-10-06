@@ -3,10 +3,10 @@ from assertpy import assert_that
 
 from speech_processing.data.dtos import AudioRequest, TextRequest
 from speech_processing.data.enums import DatasetType
-from speech_processing.data.icbhi import ICBHI_LABELS, load_icbhi_requests
+from speech_processing.data.icbhi import ICBHI_LABELS, ICBHI_PRIMARY_LABELS, load_icbhi_requests
 from speech_processing.runners.base import experiment_keys
 from speech_processing.runners.icbhi import ACOUSTIC_DICTIONARY, ExperimentVersion
-from speech_processing.utils.consts import COT_START_TAG
+from speech_processing.utils.consts import COT_START_TAG, VOXTRAL_MAX_AUDIOS_PER_PROMPT
 from speech_processing.utils.exceptions import DeprecatedExperimentError
 
 ACTIVE = [v for v in ExperimentVersion if not v.value.deprecated]
@@ -166,7 +166,7 @@ def test_shuffled_variants_keep_the_true_label_behind_the_ground_truth_letter(pa
     assert_that(items[0][0].metadata.permutation).is_equal_to(list(range(len(ICBHI_LABELS))))
 
 
-CORE_KEYS = {"c1", "c3", "c4", "r0", "r0_aware", "r2", "r3", "r6", "a1b", "a3a", "a3b", "a5a", "a5c"}
+CORE_KEYS = {"c1", "c3", "c4", "r0", "r0_aware", "r2", "r3", "a1b", "a3a", "a3b", "a5a", "a5c"}
 
 
 def test_the_core_tier_is_the_pre_registered_set():
@@ -206,3 +206,11 @@ def test_tiers_partition_the_runnable_experiments():
     future = experiment_keys(ExperimentVersion, "future_work")
     assert_that(set(core) & set(future)).is_empty()
     assert_that(sorted(core + future)).is_equal_to(sorted(experiment_keys(ExperimentVersion)))
+
+
+def test_no_core_arm_needs_more_audio_clips_than_voxtral_accepts():
+    """r6 was core until it met vLLM's 5-clip limit on the card: 6 demonstrations + the test clip."""
+    for key in experiment_keys(ExperimentVersion, "core"):
+        meta = ExperimentVersion[key].value
+        if meta.few_shot_mode in ("audio", "rag"):
+            assert_that(len(ICBHI_PRIMARY_LABELS) + 1).is_less_than_or_equal_to(VOXTRAL_MAX_AUDIOS_PER_PROMPT)

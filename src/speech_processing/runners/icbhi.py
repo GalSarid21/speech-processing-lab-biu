@@ -180,7 +180,7 @@ _TEXT_ONLY_METADATA_PROMPT = (
 # `core` tier:
 #   controls     c1 (silence prior), c3 (silence + metadata), c4 (silence + features)
 #   baselines    r0 (metadata-blind), r0_aware (metadata-aware)
-#   classic      r2 (CoT), r3 (acoustic dictionary), r6 (few-shot over the held-out demonstrations)
+#   classic      r2 (CoT), r3 (acoustic dictionary)
 #   pre-registered comparisons  (1) a1b vs r0   (2) best of a3a/a3b vs r0   (3) a5c vs a5a
 # Everything else is `future_work`: implemented, tested and runnable with --experiment, but not part
 # of the reported results. Only r8 is deprecated: as written it was never a valid experiment.
@@ -189,6 +189,11 @@ FUTURE_CLASSIC_VARIANT = "Classic-prompting variant; r2 and r3 already represent
 FUTURE_COT_FEW_SHOT = (
     "Chain-of-thought variant of r6. CoT is already reported through r2, so this adds a second CoT "
     "comparison without a pre-registered question behind it."
+)
+FUTURE_FEW_SHOT_AUDIO_LIMIT = (
+    "One demonstration per primary class is 6 clips plus the test clip, and Voxtral (in vLLM) accepts at "
+    "most 5 audio clips per prompt. Fewer demonstrations would leave classes unshown and bias the balanced "
+    "accuracy comparison. Few-shot is reported through MMAR v7 instead (3 demonstrations + test = 4 clips)."
 )
 FUTURE_CROSS_MODEL_CONTROL = (
     "Text-only control on a different model (Gemma). A gap between it and a Voxtral arm mixes the "
@@ -334,6 +339,8 @@ class ExperimentVersion(Enum):
         max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=4,
         few_shot_mode="audio",
+        tier="future_work",
+        future_work_reason=FUTURE_FEW_SHOT_AUDIO_LIMIT,
     )
     r7 = ExperimentMeta(
         dataset=ICBHI,
