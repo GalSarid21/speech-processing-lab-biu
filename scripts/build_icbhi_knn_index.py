@@ -20,8 +20,10 @@ Two artifacts come out of one pass:
 It also prints the pure kNN majority-vote accuracy. That is the control the experiments have to
 beat: if the audio-language model scores the same, it added nothing to the retrieval.
 
-Neighbours are drawn from the same 174 clips, so patient overlap is possible and near-duplicates are
-excluded explicitly. See data/README.md.
+Retrieval candidates are ONLY the items held out by `scripts/diagnose_icbhi.py`. Retrieving from the
+evaluation set would hand the model other scored items' labels as evidence. In this packaging the
+held-out pool is a handful of clips, so retrieval here is weak by construction - which is why A6 is
+future work until a larger disjoint pool (the original 920-recording database) exists.
 
 Verify the embedding model id before the first run.
 """
@@ -47,6 +49,10 @@ EMBEDDING_MODEL_ID = "laion/clap-htsat-unfused"
 DEFAULT_LABELS_OUTPUT = "data/icbhi_neighbor_labels.json"
 DEFAULT_MAPPING_OUTPUT = "data/icbhi_rag_mapping.json"
 DEFAULT_NEAR_DUPLICATES = "data/icbhi_near_duplicates.json"
+DEFAULT_DEMO_SPLIT = "data/icbhi_demo_ids.json"
+# Field names of speech_processing.data.icbhi.DemonstrationSplit; this script stays standalone.
+SPLIT_DEMONSTRATIONS = "demonstration_ids"
+SPLIT_NEAR_DUPLICATES = "excluded_near_duplicate_ids"
 
 TARGET_SR = 48_000
 TOP_K = 5
@@ -105,35 +111,61 @@ def embed(clips, model, processor, device: str) -> np.ndarray:
     return matrix
 
 
+def load_candidate_ids(path: str) -> set[str]:
+    """The held-out split is the only legitimate retrieval pool; without it, refuse to run."""
+    split_path = Path(path)
+    if not split_path.exists():
+        raise SystemExit(
+            f"Held-out split not found at {path}. Run scripts/diagnose_icbhi.py first: retrieving "
+            "neighbours from the evaluation set would leak their labels."
+        )
+    split = json.loads(split_path.read_text())
+    return set(split[SPLIT_DEMONSTRATIONS]) | set(split.get(SPLIT_NEAR_DUPLICATES, []))
+
+
 def nearest_neighbors(
-    embeddings: np.ndarray, item_ids: list[str], near_duplicates: dict[str, list[str]], top_k: int
+    embeddings: np.ndarray,
+    item_ids: list[str],
+    candidate_ids: set[str],
+    near_duplicates: dict[str, list[str]],
+    top_k: int,
 ) -> dict[str, list[int]]:
+    """For every evaluation item, its top-k most similar candidates. Candidates are never queries."""
     if embeddings.ndim != 2:
         raise ValueError(f"Expected an (n_clips, dim) embedding matrix, got shape {embeddings.shape}.")
 
-    # The rows are unit-norm, so this matmul IS the full cosine-similarity matrix: cos(a, b) =
-    # a.b / (|a||b|) = a.b when |a| = |b| = 1. One matmul beats ~15k pairwise calls.
-    similarity = embeddings @ embeddings.T
+    candidates = np.array([i for i, item_id in enumerate(item_ids) if item_id in candidate_ids], dtype=int)
+    if candidates.size == 0:
+        raise ValueError("No retrieval candidates: the held-out split matches no embedded clip.")
+    k = min(top_k, candidates.size)
+
+    # The rows are unit-norm, so this matmul IS cosine similarity: cos(a, b) = a.b / (|a||b|) = a.b
+    # when |a| = |b| = 1. One matmul beats a pairwise loop.
+    similarity = embeddings @ embeddings[candidates].T
     index_of = {item_id: index for index, item_id in enumerate(item_ids)}
+    position_of = {int(index): position for position, index in enumerate(candidates)}
 
     neighbors: dict[str, list[int]] = {}
     for index, item_id in enumerate(item_ids):
+        if item_id in candidate_ids:
+            continue
         scores = similarity[index].copy()
-        scores[index] = -np.inf
         for duplicate in near_duplicates.get(item_id, []):
-            if duplicate in index_of:
-                scores[index_of[duplicate]] = -np.inf
-        neighbors[item_id] = [int(i) for i in np.argsort(-scores)[:top_k]]
+            position = position_of.get(index_of.get(duplicate, -1))
+            if position is not None:
+                scores[position] = -np.inf
+        neighbors[item_id] = [int(candidates[p]) for p in np.argsort(-scores)[:k]]
     return neighbors
 
 
 def knn_vote_accuracy(neighbors: dict[str, list[int]], labels: list[str], item_ids: list[str]) -> float:
-    """The control: what retrieval alone scores, with no language model involved."""
-    correct = 0
-    for index, item_id in enumerate(item_ids):
-        votes = [labels[i] for i in neighbors[item_id]]
-        correct += Counter(votes).most_common(1)[0][0] == labels[index]
-    return correct / len(item_ids) * PCT
+    """The control: what retrieval alone scores on the evaluation items, with no language model."""
+    label_of = dict(zip(item_ids, labels, strict=True))
+    correct = sum(
+        Counter(labels[i] for i in indices).most_common(1)[0][0] == label_of[item_id]
+        for item_id, indices in neighbors.items()
+    )
+    return correct / len(neighbors) * PCT if neighbors else 0.0
 
 
 def main() -> None:
@@ -145,7 +177,10 @@ def main() -> None:
     parser.add_argument("--labels-output", type=str, default=DEFAULT_LABELS_OUTPUT)
     parser.add_argument("--mapping-output", type=str, default=DEFAULT_MAPPING_OUTPUT)
     parser.add_argument("--near-duplicates", type=str, default=DEFAULT_NEAR_DUPLICATES)
+    parser.add_argument("--demo-split", type=str, default=DEFAULT_DEMO_SPLIT)
     args = parser.parse_args()
+
+    candidate_ids = load_candidate_ids(args.demo_split)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(f"Loading {args.model_id} on {device}...")
@@ -165,7 +200,8 @@ def main() -> None:
     else:
         logger.warning(f"No near-duplicate file at {args.near_duplicates}; run scripts/diagnose_icbhi.py first.")
 
-    neighbors = nearest_neighbors(embeddings, item_ids, near_duplicates, args.top_k)
+    neighbors = nearest_neighbors(embeddings, item_ids, candidate_ids, near_duplicates, args.top_k)
+    logger.info(f"Retrieving for {len(neighbors)} evaluation items from {len(candidate_ids)} held-out candidates.")
 
     labels_output = {item_id: [labels[i] for i in indices] for item_id, indices in neighbors.items()}
     mapping_output = {item_id: [item_ids[i] for i in indices] for item_id, indices in neighbors.items()}

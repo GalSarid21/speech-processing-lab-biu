@@ -242,3 +242,14 @@ def test_num_samples_counts_scored_items_not_raw_rows(mocker, icbhi_config):
     items = load_icbhi_requests(icbhi_config.model_copy(update={"num_samples": 2}), meta())
 
     assert_that([req.metadata.item_id for req, _ in items]).is_equal_to(ICBHI_EVAL_IDS[:2])
+
+
+def test_a_misfiring_duplicate_detector_cannot_shrink_the_evaluation_set():
+    """The first detector flagged 170 of 174 real clips. Holding all their duplicates out would have
+    left almost nothing to evaluate, so the selection refuses instead."""
+    labels = {f"copd{i}": "COPD" for i in range(40)} | {k: v for k, v in LABELS_BY_ID.items() if v != "COPD"}
+    everything_duplicates = {item_id: [other for other in labels if other != item_id] for item_id in labels}
+
+    assert_that(select_demonstration_split).raises(DatasetIntegrityError).when_called_with(
+        labels, everything_duplicates
+    )

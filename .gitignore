@@ -231,3 +231,5 @@ todo/
 .DS_Store
 **/.DS_Store
 logs/
+
+!data/README.md

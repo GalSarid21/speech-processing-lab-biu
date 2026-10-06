@@ -67,6 +67,10 @@ ICBHI_PRIMARY_LABELS: tuple[str, ...] = (
     "No potential disease detected",
 )
 DEMONSTRATION_SEED = 2017
+# A clip cut from a longer recording overlaps at most a few neighbouring cuts. Far more "near-duplicates"
+# per demonstration means the detector is misfiring (the first one flagged 170 of 174 real clips), and
+# holding them all out would gut the evaluation set.
+MAX_NEAR_DUPLICATES_PER_DEMONSTRATION = 5
 
 ICBHI_FILE_COLUMN = "file"
 ICBHI_LABEL_COLUMN = "label"
@@ -390,6 +394,12 @@ def select_demonstration_split(
         chosen.append(candidates[0])
 
     excluded = {duplicate for item_id in chosen for duplicate in near_duplicates.get(item_id, [])} - set(chosen)
+    if len(excluded) > MAX_NEAR_DUPLICATES_PER_DEMONSTRATION * len(chosen):
+        raise DatasetIntegrityError(
+            f"The {len(chosen)} demonstrations have {len(excluded)} near-duplicates between them, out of "
+            f"{len(labels_by_id)} items. That is the near-duplicate detector misfiring, not a property of the "
+            "data; refusing to hold them all out of evaluation."
+        )
     return DemonstrationSplit(demonstration_ids=chosen, excluded_near_duplicate_ids=sorted(excluded), seed=seed)
 
 

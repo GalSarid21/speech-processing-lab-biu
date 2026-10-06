@@ -1,3 +1,16 @@
+"""Builds the stratified 100-item ICBHI subset used by V1 and V3. SUPERSEDED by V4.
+
+V4 evaluates a fixed set - every row except a small held-out demonstration split - identically for
+every experiment, and `load_icbhi_requests` ignores `sample_ids` entirely. It does not subsample to
+balance either: balanced accuracy already weights every class equally while keeping all the data. That is deliberate: V1 and V3 were run on different item sets (V1 was 60%
+COPD, V3 35%), which made every cross-version comparison meaningless. A fixed evaluation set is
+what makes the V4 numbers comparable to each other.
+
+This script is kept because `scripts/generate_notebook.py` still reads its output for the V1
+research notebook, and because the V1/V3 result files cannot be interpreted without knowing how
+their subset was drawn. Do not use it to drive a V4 run.
+"""
+
 import argparse
 
 import pandas as pd
