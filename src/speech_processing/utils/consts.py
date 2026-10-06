@@ -29,13 +29,17 @@ ICBHI_AUDIO_CACHE_DIR = "/tmp/icbhi_audio_cache"
 TEMP_AUDIO_DIR_PREFIX = "speech_processing_audio_"
 
 # Voxtral prompt budget
-VOXTRAL_MAX_AUDIOS_PER_PROMPT = 8
+# Hard limit enforced by vLLM's Voxtral implementation (VoxtralProcessingInfo.get_supported_mm_limits
+# returns {"audio": 5}, "performance tends to degrade after 5"); a 6th clip fails validation.
+VOXTRAL_MAX_AUDIOS_PER_PROMPT = 5
+# Every multi-clip layout also sends the full or test clip, so it gets one slot fewer.
+MAX_EXTRA_AUDIOS_PER_PROMPT = VOXTRAL_MAX_AUDIOS_PER_PROMPT - 1
 VOXTRAL_AUDIO_TOKENS_PER_SECOND = 12.5  # Whisper-style encoder at 50 Hz, downsampled 4x
 
 # T2 presentation
 CHUNK_LENGTH_S = 5.0
-MAX_AUDIO_CHUNKS = 6
-MAX_BREATHING_CYCLES = 6
+MAX_AUDIO_CHUNKS = MAX_EXTRA_AUDIOS_PER_PROMPT
+MAX_BREATHING_CYCLES = MAX_EXTRA_AUDIOS_PER_PROMPT
 LOCALIZATION_PADDING_S = 0.5
 
 # T3 contrastive scoring

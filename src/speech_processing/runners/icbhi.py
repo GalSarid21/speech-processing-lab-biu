@@ -55,7 +55,12 @@ from speech_processing.pipelines.inference import InferencePipeline
 from speech_processing.pipelines.judge import JudgePipeline, ParserOnlyPipeline
 from speech_processing.prompts.templates.judge.qwen import build_icbhi_choice_judge_conversation
 from speech_processing.runners.base import parse_args
-from speech_processing.utils.consts import COT_END_TAG, COT_START_TAG, JUDGE_LOAD_DELAY_S
+from speech_processing.utils.consts import (
+    COT_END_TAG,
+    COT_START_TAG,
+    JUDGE_LOAD_DELAY_S,
+    MAX_EXTRA_AUDIOS_PER_PROMPT,
+)
 from speech_processing.utils.exceptions import DatasetIntegrityError, DeprecatedExperimentError
 
 ICBHI = DatasetType.ICBHI
@@ -217,6 +222,11 @@ R8_DEPRECATION = (
 )
 
 NUM_ICBHI_LABELS = len(ICBHI_LABELS)
+# Budget for arms that ask for a single letter. With the long dictionary/feature prompts Voxtral opens
+# with a ~25-token lead-in ("Based on the ... the patient's diagnosis is most likely:") before the
+# letter, so a 32-token budget could cut the answer off and score it as wrong. 96 leaves headroom;
+# the model stops on its own when it is done, so the cost is negligible.
+SINGLE_ANSWER_MAX_TOKENS = 96
 
 
 class ExperimentVersion(Enum):
@@ -227,7 +237,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="silence_prior",
         prompt=BASELINE_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         replace_audio_with_silence=True,
     )
@@ -246,7 +256,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="silence_metadata_aware",
         prompt=BASELINE_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         include_recording_metadata=True,
         replace_audio_with_silence=True,
@@ -255,7 +265,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="silence_features_dictionary",
         prompt=_FEATURES_DICTIONARY_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         inject_acoustic_features=True,
         replace_audio_with_silence=True,
@@ -265,13 +275,17 @@ class ExperimentVersion(Enum):
     # R0-R8: classic text prompting, metadata-blind
     # ---------------------------------------------------------
     r0 = ExperimentMeta(
-        dataset=ICBHI, experiment_name="baseline", prompt=BASELINE_PROMPT, max_new_tokens=32, batch_size=8
+        dataset=ICBHI,
+        experiment_name="baseline",
+        prompt=BASELINE_PROMPT,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
+        batch_size=8,
     )
     r0_aware = ExperimentMeta(
         dataset=ICBHI,
         experiment_name="baseline_metadata_aware",
         prompt=BASELINE_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         include_recording_metadata=True,
     )
@@ -279,7 +293,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="role_pulmonologist",
         prompt=_ROLE_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         tier="future_work",
         future_work_reason=FUTURE_CLASSIC_VARIANT,
@@ -288,7 +302,11 @@ class ExperimentVersion(Enum):
         dataset=ICBHI, experiment_name="cot", prompt=_COT_PROMPT, max_new_tokens=512, batch_size=8, use_cot=True
     )
     r3 = ExperimentMeta(
-        dataset=ICBHI, experiment_name="acoustic_dictionary", prompt=_DICTIONARY_PROMPT, max_new_tokens=32, batch_size=8
+        dataset=ICBHI,
+        experiment_name="acoustic_dictionary",
+        prompt=_DICTIONARY_PROMPT,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
+        batch_size=8,
     )
     r4 = ExperimentMeta(
         dataset=ICBHI,
@@ -313,7 +331,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="few_shot_audio_balanced",
         prompt=_FEW_SHOT_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=4,
         few_shot_mode="audio",
     )
@@ -332,7 +350,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="prior_informed",
         prompt=_PRIOR_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         deprecated=True,
         deprecation_reason=R8_DEPRECATION,
@@ -345,7 +363,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="audio_features",
         prompt=_FEATURES_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         inject_acoustic_features=True,
         tier="future_work",
@@ -355,7 +373,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="audio_features_dictionary",
         prompt=_FEATURES_DICTIONARY_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         inject_acoustic_features=True,
     )
@@ -374,7 +392,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="audio_features_dictionary_metadata_aware",
         prompt=_FEATURES_DICTIONARY_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         inject_acoustic_features=True,
         include_recording_metadata=True,
@@ -389,7 +407,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="audio_tags",
         prompt=_TAGS_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         inject_audio_tags=True,
         tier="future_work",
@@ -399,7 +417,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="audio_tags_features",
         prompt=_TAGS_FEATURES_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         inject_audio_tags=True,
         inject_acoustic_features=True,
@@ -414,7 +432,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="bandpass_normalize",
         prompt=BASELINE_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         preprocessing="bandpass_normalize",
     )
@@ -422,7 +440,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="bandpass_normalize_shift",
         prompt=BASELINE_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         preprocessing="bandpass_normalize_shift",
     )
@@ -430,7 +448,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="bandpass_normalize_features",
         prompt=_FEATURES_DICTIONARY_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         preprocessing="bandpass_normalize",
         inject_acoustic_features=True,
@@ -445,7 +463,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="cycle_presentation",
         prompt=_CYCLE_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=4,
         presentation="cycles",
         tier="future_work",
@@ -513,7 +531,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="knn_text_evidence",
         prompt=_NEIGHBOR_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         inject_neighbor_labels=True,
         tier="future_work",
@@ -523,7 +541,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="knn_audio_few_shot",
         prompt=_FEW_SHOT_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=2,
         few_shot_mode="rag",
         rag_mapping_file=ICBHI_RAG_MAPPING_FILE,
@@ -538,7 +556,7 @@ class ExperimentVersion(Enum):
         dataset=ICBHI,
         experiment_name="choice_shuffling",
         prompt=BASELINE_PROMPT,
-        max_new_tokens=32,
+        max_new_tokens=SINGLE_ANSWER_MAX_TOKENS,
         batch_size=8,
         num_shuffled_variants=5,
         tier="future_work",
@@ -567,7 +585,7 @@ class ExperimentVersion(Enum):
         return version
 
 
-MAX_RAG_SHOTS = 5
+MAX_RAG_SHOTS = MAX_EXTRA_AUDIOS_PER_PROMPT
 
 
 def _load_icbhi_rag_mapping(path: str) -> dict[str, list[str]]:

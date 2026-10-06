@@ -30,7 +30,9 @@ class InferencePipeline:
                     "generated_text": resp.generated_text,
                     "final_turn_text": resp.final_turn_text,
                     "ground_truth": ground_truth,
-                    "metadata": req.metadata.model_dump() if req.metadata else None,
+                    # The response's metadata is the request's plus whatever the engine added - e.g. the
+                    # contrastive scorer's choice_scores - so writing the request's would drop it.
+                    "metadata": metadata.model_dump() if (metadata := resp.metadata or req.metadata) else None,
                 }
                 f.write(json.dumps(record) + "\n")
 

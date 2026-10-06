@@ -35,8 +35,8 @@ from speech_processing.utils.consts import (
     COT_END_TAG,
     COT_START_TAG,
     ICBHI_AUDIO_CACHE_DIR,
+    MAX_EXTRA_AUDIOS_PER_PROMPT,
     NO_FEATURES_PLACEHOLDER,
-    VOXTRAL_MAX_AUDIOS_PER_PROMPT,
 )
 from speech_processing.utils.exceptions import DatasetIntegrityError, FewShotLeakageError
 
@@ -440,7 +440,7 @@ def _build_icbhi_few_shot_turn(item: ICBHIItem, meta: ExperimentMeta, rationale:
 
 
 # One prompt slot is the test clip itself, so the demonstrations get everything below the limit.
-MAX_DEMONSTRATIONS = VOXTRAL_MAX_AUDIOS_PER_PROMPT - 1
+MAX_DEMONSTRATIONS = MAX_EXTRA_AUDIOS_PER_PROMPT
 
 
 def _load_items_by_id(config: DatasetConfig) -> dict[str, ICBHIItem]:
@@ -459,7 +459,8 @@ def build_icbhi_few_shot_pool(config: DatasetConfig, meta: ExperimentMeta) -> di
     split = load_demonstration_split(config.demo_ids_file)
     if len(split.demonstration_ids) > MAX_DEMONSTRATIONS:
         raise DatasetIntegrityError(
-            f"{len(split.demonstration_ids)} demonstrations exceed the {MAX_DEMONSTRATIONS} that fit in one prompt."
+            f"{len(split.demonstration_ids)} demonstrations plus the test clip exceed the "
+            f"{MAX_DEMONSTRATIONS + 1} audio clips Voxtral accepts in one prompt."
         )
 
     items = _load_items_by_id(config)

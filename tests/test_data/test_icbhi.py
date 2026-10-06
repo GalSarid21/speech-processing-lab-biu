@@ -253,3 +253,15 @@ def test_a_misfiring_duplicate_detector_cannot_shrink_the_evaluation_set():
     assert_that(select_demonstration_split).raises(DatasetIntegrityError).when_called_with(
         labels, everything_duplicates
     )
+
+
+def test_a_demonstration_set_that_cannot_fit_in_one_prompt_fails_before_inference(
+    patched_icbhi, icbhi_config, tmp_path
+):
+    """One demonstration per primary class (6) plus the test clip is 7 clips; Voxtral takes 5."""
+    split_file = tmp_path / "six_demos.json"
+    split_file.write_text(json.dumps({"demonstration_ids": [f"d{i}" for i in range(len(ICBHI_PRIMARY_LABELS))]}))
+    config = icbhi_config.model_copy(update={"demo_ids_file": str(split_file)})
+
+    with pytest.raises(DatasetIntegrityError, match="Voxtral accepts"):
+        build_icbhi_few_shot_pool(config, meta(few_shot_mode="audio"))

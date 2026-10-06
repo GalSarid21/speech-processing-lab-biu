@@ -18,6 +18,8 @@ _EXPLICIT_STATEMENT_PATTERN = re.compile(
 
 _BARE_LETTER_ALONE = re.compile(r"^\s*[\(\[]?\*{0,2}([A-Z])\*{0,2}[\.\):\]]?\s*$")
 _BARE_LETTER_PREFIX = re.compile(r"^\s*[\(\[]?\*{0,2}([A-Z])\*{0,2}[\.\):\]]\s+\S")
+# "G. Asthma", "**A. COPD**", "(B) Pneumonia": a letter, a delimiter, then text checked against that letter.
+_LETTER_WITH_TEXT = re.compile(r"^\s*[\(\[]?\*{0,2}([A-Z])\*{0,2}[\.\):\]]\s*(.+?)\s*$")
 
 
 def strip_thinking(text: str) -> str:
@@ -63,4 +65,25 @@ def parse_choice_letter(text: str, choices: list[str]) -> str | None:
             if match and match.group(1) in valid_letters:
                 return match.group(1)
 
-    return None
+    return _single_answer_line(lines, choices, valid_letters)
+
+
+def _single_answer_line(lines: list[str], choices: list[str], valid_letters: set[str]) -> str | None:
+    """The letter named by every answer-shaped line, wherever those lines sit.
+
+    Models often wrap the answer in prose - "The diagnosis is most likely:\n\nG. Asthma\n\nThe presence
+    of..." - so it is on neither the first nor the last line. A line counts only if it is a bare letter,
+    or a letter followed by that same letter's own choice text. If those lines name more than one
+    letter (an enumerated list of the options, say), the answer is ambiguous and stays unparsed.
+    """
+    named: set[str] = set()
+    for line in lines:
+        alone = _BARE_LETTER_ALONE.match(line)
+        if alone and alone.group(1) in valid_letters:
+            named.add(alone.group(1))
+            continue
+        with_text = _LETTER_WITH_TEXT.match(line)
+        if with_text and with_text.group(1) in valid_letters:
+            if match_choice_text(with_text.group(2), choices) == with_text.group(1):
+                named.add(with_text.group(1))
+    return named.pop() if len(named) == 1 else None

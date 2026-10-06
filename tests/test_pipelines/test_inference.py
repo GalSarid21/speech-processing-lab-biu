@@ -77,3 +77,28 @@ def test_mismatched_response_count_raises(tmp_path):
     pipeline = InferencePipeline(FakeEngine(["B"]))
     with pytest.raises(ValueError):
         pipeline.run([build_request(), build_request()], ["B", "B"], str(tmp_path / "out.jsonl"))
+
+
+class ScoringEngine(BaseAudioModel):
+    """Adds a response-only metadata field, as the contrastive scorer does with choice_scores."""
+
+    def batch_infer(self, requests: list[AudioRequest]) -> list[AudioResponse]:
+        return [
+            AudioResponse(
+                sample_id=req.audio_path,
+                instruction=req.instruction,
+                generated_text="A",
+                final_turn_text="A",
+                metadata=req.metadata.model_copy(update={"choice_scores": {"A": 0.5, "B": -0.5}}),
+            )
+            for req in requests
+        ]
+
+
+def test_metadata_the_engine_adds_reaches_the_jsonl(tmp_path):
+    """Writing the request's metadata used to drop the contrastive scores the engine had computed."""
+    output_path = tmp_path / "out.jsonl"
+
+    InferencePipeline(ScoringEngine()).run([build_request()], ["A"], str(output_path))
+
+    assert_that(read_lines(output_path)[0]["metadata"]["choice_scores"]).is_equal_to({"A": 0.5, "B": -0.5})

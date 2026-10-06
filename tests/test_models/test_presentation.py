@@ -3,13 +3,14 @@ from assertpy import assert_that
 
 from speech_processing.models.presentation import (
     ChunkedPresentation,
+    CyclePresentation,
     FullClipPresentation,
     TwoPassLocalizationPresentation,
     parse_time_span,
 )
 from speech_processing.utils import audio as audio_utils
 from speech_processing.utils.audio import chunk_audio
-from speech_processing.utils.consts import CHUNK_LENGTH_S, MAX_AUDIO_CHUNKS
+from speech_processing.utils.consts import CHUNK_LENGTH_S, MAX_AUDIO_CHUNKS, VOXTRAL_MAX_AUDIOS_PER_PROMPT
 
 TARGET_SR = 16_000
 
@@ -19,7 +20,9 @@ def mono_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(audio_utils, "MONO_AUDIO_CACHE_DIR", str(tmp_path / "cache"))
 
 
-@pytest.mark.parametrize("duration_s, expected_chunks", [(3.0, 1), (12.0, 3), (30.0, 6), (61.0, 6)])
+@pytest.mark.parametrize(
+    "duration_s, expected_chunks", [(3.0, 1), (12.0, 3), (30.0, MAX_AUDIO_CHUNKS), (61.0, MAX_AUDIO_CHUNKS)]
+)
 def test_chunk_audio_covers_the_whole_clip(tmp_path, wav_factory, duration_s, expected_chunks):
     clip = wav_factory(duration_s, f"clip_{duration_s}.wav")
     chunks = chunk_audio(clip, CHUNK_LENGTH_S, MAX_AUDIO_CHUNKS, str(tmp_path))
@@ -81,3 +84,23 @@ def test_two_pass_falls_back_to_text_only(tmp_path, wav_factory):
     assert_that(content).is_length(1)
     assert_that(content[0]["text"]).is_equal_to("answer now")
     assert_that(presentation.num_fallbacks).is_equal_to(1)
+
+
+@pytest.mark.parametrize("duration_s", [12.0, 30.0, 61.0, 120.0])
+def test_chunked_layout_never_exceeds_the_voxtral_audio_limit(tmp_path, wav_factory, duration_s):
+    """vLLM rejects a 6th clip in one Voxtral prompt; the chunks plus the full clip must fit."""
+    content = ChunkedPresentation(TARGET_SR).first_turn(
+        wav_factory(duration_s, f"long_{duration_s}.wav"), "instruction", str(tmp_path)
+    )
+    audios = [part for part in content if part["type"] == "audio_url"]
+    assert_that(len(audios)).is_less_than_or_equal_to(VOXTRAL_MAX_AUDIOS_PER_PROMPT)
+
+
+def test_cycle_layout_never_exceeds_the_voxtral_audio_limit(tmp_path, wav_factory):
+    clip = wav_factory(20.0, "cycles.wav")
+    many_spans = [(float(i), float(i) + 1.0) for i in range(12)]
+
+    content = CyclePresentation(TARGET_SR, {clip: many_spans}).first_turn(clip, "instruction", str(tmp_path))
+
+    audios = [part for part in content if part["type"] == "audio_url"]
+    assert_that(len(audios)).is_equal_to(VOXTRAL_MAX_AUDIOS_PER_PROMPT)
