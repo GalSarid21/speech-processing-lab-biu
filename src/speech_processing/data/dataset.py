@@ -41,6 +41,23 @@ RANDOM_STATE = 42
 MMAR_ID_COLUMN = "id"
 MMAR_SUB_CATEGORY_COLUMN = "sub-category"
 
+# Gold-answer errors in BoJack/MMAR itself. A scan of all 1000 items (2026-10-06) found 5 whose
+# `answer` matches none of their `choices`. Each is handled explicitly here; any OTHER mismatch still
+# raises in answer_to_letter, because it would be a new data problem rather than a known one.
+#   Corrections: the gold answer is a shortened copy of exactly one choice, so the intended answer is
+#   unambiguous; the value is that choice's full text.
+MMAR_GOLD_CORRECTIONS: dict[str, str] = {
+    "BV1NX4y1p7Xq_00-33-16_00-33-45": "Because verbal slip, 'terrierst' and 'terrorist' sound similar",
+    "BV16j411E7Z9_00-00-13_00-00-34": "Octave interval leap simulates bell",
+}
+#   Exclusions: the gold answer cannot be mapped to one choice, so the item cannot be scored. They are
+#   dropped from every evaluation and few-shot set, with a warning naming them.
+MMAR_EXCLUDED_ITEMS: dict[str, str] = {
+    "BV1NtQuYTELJ_00-00-00_00-00-26": "the gold answer names both choices ('American' and 'Colombian')",
+    "BV1mifMY4Ebq_00-02-41_00-03-10": "the gold answer lists three of the six choices",
+    "BV1P4411677K_0-00_0-20": "the gold answer ('professional performance level') matches no choice exactly",
+}
+
 FAKE_COTS = {
     "KodXqxwrFiE_00-00-00_00-00-19": "Logically, I hear a clear instructional voice pointing out a specific type of fruit. Acoustically, the speech is direct, well-articulated, and recorded in a quiet environment. Based on this, the speaker specifically points out blueberries.",
     "BV1Gt42157zM_00-00-00_00-00-17": "Logically, a girl speaks first, followed by a boy imitating her pronunciation. Acoustically, the boy artificially alters his pitch and vowel sounds to perform a mock accent. Based on this, the boy is imitating a British accent.",
@@ -112,13 +129,21 @@ def _parse_mmar_row(row, config: DatasetConfig, transcripts: dict[str, str]) -> 
         item_id=item_id,
         question=str(row["question"]),
         choices=choices,
-        answer_letter=answer_to_letter(row["answer"], choices, item_id),
+        answer_letter=answer_to_letter(MMAR_GOLD_CORRECTIONS.get(item_id, row["answer"]), choices, item_id),
         audio_path=os.path.join(audio_base, str(row["audio_path"]).lstrip("./")),
         transcript=transcripts.get(item_id, NO_TRANSCRIPT_PLACEHOLDER),
         modality=str(row.get("modality", "") or ""),
         category=str(row.get("category", "") or ""),
         sub_category=str(row.get(MMAR_SUB_CATEGORY_COLUMN, "") or ""),
     )
+
+
+def _drop_excluded_items(df: pd.DataFrame) -> pd.DataFrame:
+    """Removes the items listed in MMAR_EXCLUDED_ITEMS, naming each one that was present."""
+    excluded = df[MMAR_ID_COLUMN].isin(MMAR_EXCLUDED_ITEMS)
+    for item_id in df.loc[excluded, MMAR_ID_COLUMN]:
+        logger.warning(f"Excluding MMAR item {item_id}: {MMAR_EXCLUDED_ITEMS[item_id]}.")
+    return df[~excluded]
 
 
 def _select_eval_rows(df: pd.DataFrame, config: DatasetConfig) -> pd.DataFrame:
@@ -190,7 +215,7 @@ def load_mmar_requests(
 ) -> list[tuple[BaseRequest, str]]:
     """Loads the MMAR eval split and renders one request per (item, choice-order variant)."""
     df = _load_mmar_frame(config)
-    sample_df = _select_eval_rows(df, config)
+    sample_df = _drop_excluded_items(_select_eval_rows(df, config))
     transcripts = _load_transcripts(config)
 
     evidence_by_id: dict[str, AcousticEvidence] = {}
@@ -278,7 +303,7 @@ def read_few_shot_ids(config: DatasetConfig) -> list[str]:
 def _load_mmar_items(config: DatasetConfig, ids: list[str]) -> list[MMARItem]:
     if not ids:
         return []
-    df = _load_mmar_frame(config)
+    df = _drop_excluded_items(_load_mmar_frame(config))
     transcripts = _load_transcripts(config)
     by_id = {str(row[MMAR_ID_COLUMN]): row for _, row in df[df[MMAR_ID_COLUMN].isin(ids)].iterrows()}
     return [_parse_mmar_row(by_id[item_id], config, transcripts) for item_id in ids if item_id in by_id]

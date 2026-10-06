@@ -6,6 +6,8 @@ from assertpy import assert_that
 
 from speech_processing.config.core import ExperimentMeta
 from speech_processing.data.dataset import (
+    MMAR_EXCLUDED_ITEMS,
+    MMAR_GOLD_CORRECTIONS,
     get_mmar_few_shot_turns,
     load_mmar_requests,
     validate_few_shot_disjointness,
@@ -132,6 +134,33 @@ def test_answer_not_among_choices_raises(mocker, mmar_config):
 
     config = mmar_config.model_copy(update={"sample_ids": ["ID1"]})
     assert_that(load_mmar_requests).raises(DatasetIntegrityError).when_called_with(config, meta())
+
+
+def _patch_frame(mocker, rows):
+    mocker.patch("speech_processing.data.dataset._load_mmar_frame", return_value=pd.DataFrame(rows))
+    mocker.patch("speech_processing.data.dataset._load_transcripts", return_value={})
+
+
+def test_known_gold_error_is_corrected(mocker, mmar_config):
+    item_id, full_choice = next(iter(MMAR_GOLD_CORRECTIONS.items()))
+    row = dict(MMAR_ROWS[0]) | {"id": item_id, "choices": ["Other", full_choice], "answer": "abbreviated gold"}
+    _patch_frame(mocker, [row])
+
+    config = mmar_config.model_copy(update={"sample_ids": [item_id]})
+    [(_, ground_truth)] = load_mmar_requests(config, meta())
+
+    assert_that(ground_truth).is_equal_to("B")
+
+
+def test_known_unscoreable_item_is_excluded(mocker, mmar_config):
+    excluded_id = next(iter(MMAR_EXCLUDED_ITEMS))
+    broken = dict(MMAR_ROWS[0]) | {"id": excluded_id, "answer": "both\nchoices"}
+    _patch_frame(mocker, [broken, MMAR_ROWS[0]])
+
+    config = mmar_config.model_copy(update={"sample_ids": [excluded_id, MMAR_ROWS[0]["id"]]})
+    items = load_mmar_requests(config, meta())
+
+    assert_that([request.metadata.item_id for request, _ in items]).is_equal_to([MMAR_ROWS[0]["id"]])
 
 
 # --------------------------------------------------------------------------------------
