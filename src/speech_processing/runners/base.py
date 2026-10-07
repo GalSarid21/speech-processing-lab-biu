@@ -1,10 +1,14 @@
 import argparse
+import json
+import os
+from datetime import UTC, datetime
 from enum import Enum
 
-from speech_processing.config.core import ExperimentTier
+from speech_processing.config.core import AppConfig, ExperimentMeta, ExperimentTier
 from speech_processing.config.factories import DEFAULT_GPU_PCT, DEFAULT_MAX_SEQS
 
 ALL_TIERS = "all"
+RUN_CONFIG_FILE = "run_config.json"
 
 
 def parse_args(description: str):
@@ -56,3 +60,19 @@ def experiment_keys(registry: type[Enum], tier: ExperimentTier | None = None) ->
         for member in registry
         if not member.value.deprecated and (tier is None or member.value.tier == tier)
     ]
+
+
+def write_run_config(run_dir: str, args: argparse.Namespace, config: AppConfig, meta: ExperimentMeta) -> None:
+    """Records which models produced a run folder, so results of different models are never mixed up."""
+    record = {
+        "dataset": args.dataset,
+        "experiment": args.experiment,
+        "experiment_name": meta.experiment_name,
+        "audio_model_id": config.audio_model.model_id if config.audio_model else None,
+        "text_model_id": config.text_model.model_id if config.text_model else None,
+        "judge_model_id": config.judge.model_id if config.judge and not getattr(args, "no_judge", False) else None,
+        "runs_requested": args.runs,
+        "started_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    with open(os.path.join(run_dir, RUN_CONFIG_FILE), "w") as f:
+        json.dump(record, f, indent=2)

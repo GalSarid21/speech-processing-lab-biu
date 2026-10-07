@@ -9,6 +9,7 @@ from speech_processing.data.dtos.metrics import AggregateMetrics, ICBHIAggregate
 from speech_processing.data.dtos.responses import EvaluationResult, JudgeResponse
 from speech_processing.data.icbhi import HEALTHY_LABEL, ICBHI_LABELS, ICBHI_PRIMARY_LABELS
 from speech_processing.evaluation.answer_parsing import parse_choice_letter
+from speech_processing.evaluation.language import is_non_english
 from speech_processing.utils.consts import UNPARSED_CHOICE
 
 MetricsCalculator = Callable[
@@ -74,6 +75,11 @@ def _category_report(rows: list[tuple[str, bool]]) -> str:
     return "\n".join(lines)
 
 
+def _non_english_pct(evaluations: list[JudgeResponse]) -> float:
+    """Over the full generated text, so a reasoning section written in another language is caught too."""
+    return sum(is_non_english(e.generated_text or e.final_turn_text) for e in evaluations) / len(evaluations) * _PCT
+
+
 def calculate_mmar_metrics(evaluations: list[JudgeResponse]) -> MMARAggregateMetrics | None:
     if not evaluations:
         return None
@@ -103,6 +109,7 @@ def calculate_mmar_metrics(evaluations: list[JudgeResponse]) -> MMARAggregateMet
         judge_accuracy_pct=num_judge_correct / num_evals * _PCT,
         unparsed_pct=num_unparsed / num_evals * _PCT,
         parser_judge_agreement_pct=num_agree / num_evals * _PCT,
+        non_english_pct=_non_english_pct(evaluations),
         classification_report=_category_report(category_rows),
     )
 
@@ -173,5 +180,6 @@ def calculate_icbhi_metrics(evaluations: list[JudgeResponse]) -> ICBHIAggregateM
             y_true, y_pred, lambda label: label != HEALTHY_LABEL
         ),
         copd_vs_rest_balanced_acc_pct=_binary_balanced_accuracy_pct(y_true, y_pred, lambda label: label == COPD_LABEL),
+        non_english_pct=_non_english_pct(evaluations),
         classification_report=classification_report(y_true, y_pred, labels=list(ICBHI_LABELS), zero_division=0),
     )

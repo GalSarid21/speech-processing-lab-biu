@@ -118,3 +118,9 @@ def test_macro_f1_ignores_classes_that_never_occur():
     labels each contributed an F1 of zero."""
     metrics = calculate_icbhi_metrics([response(label, letter_of(label)) for label in (COPD, HEALTHY, PNEUMONIA)])
     assert_that(metrics.macro_f1_pct).is_close_to(100.0, 0.01)
+
+
+def test_icbhi_counts_answers_that_switched_language():
+    metrics = calculate_icbhi_metrics([response(COPD, "诊断结果是 A 慢性阻塞性肺病"), response(COPD, letter_of(COPD))])
+
+    assert_that(metrics.non_english_pct).is_equal_to(50.0)

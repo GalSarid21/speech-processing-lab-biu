@@ -13,6 +13,8 @@ class MMARAggregateMetrics(BaseModel):
     judge_accuracy_pct: float
     unparsed_pct: float
     parser_judge_agreement_pct: float
+    # Share of answers written mostly in a CJK script - a model drifting out of English (evaluation/language.py).
+    non_english_pct: float
     classification_report: str
 
 
@@ -33,4 +35,5 @@ class ICBHIAggregateMetrics(BaseModel):
     unparsed_pct: float
     binary_disease_balanced_acc_pct: float
     copd_vs_rest_balanced_acc_pct: float
+    non_english_pct: float
     classification_report: str

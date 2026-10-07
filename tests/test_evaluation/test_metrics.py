@@ -124,3 +124,14 @@ def test_stability_generalises_to_mmar_metrics():
 
     assert_that(report).contains_key("accuracy_pct", "judge_accuracy_pct", "unparsed_pct", "parser_judge_agreement_pct")
     assert_that(report["accuracy_pct"]["mean"]).is_equal_to(50.0)
+
+
+def test_mmar_counts_answers_that_switched_language():
+    metrics = calculate_mmar_metrics(
+        [
+            mmar_response("答案是 B 因为说话者是猫。", "B", "B", "Speaker"),
+            mmar_response('He says "猫" (cat). B', "B", "B", "Speaker"),
+        ]
+    )
+
+    assert_that(metrics.non_english_pct).is_equal_to(50.0)

@@ -1,3 +1,4 @@
+import json
 import os
 from argparse import Namespace
 
@@ -19,6 +20,7 @@ from speech_processing.models.presentation import (
 )
 from speech_processing.pipelines.aggregation import IdentityAggregator, ShuffledMajorityVoteAggregator
 from speech_processing.pipelines.judge import EvaluationPipeline, JudgePipeline, ParserOnlyPipeline
+from speech_processing.runners.base import RUN_CONFIG_FILE
 from speech_processing.runners.icbhi import ExperimentVersion, run_icbhi
 from speech_processing.utils.exceptions import DatasetIntegrityError, FewShotLeakageError
 
@@ -197,3 +199,12 @@ def test_few_shot_demonstrations_never_overlap_the_scored_items(mocked_runner, m
     )
 
     assert_that(run_icbhi).raises(FewShotLeakageError).when_called_with(build_args("r6", tmp_path))
+
+
+def test_run_records_which_models_produced_it(mocked_runner, tmp_path):
+    run_icbhi(build_args("r0", tmp_path))
+
+    [run_dir] = os.listdir(tmp_path)
+    record = json.loads((tmp_path / run_dir / RUN_CONFIG_FILE).read_text())
+    assert_that(record).contains_entry({"experiment": "r0"}, {"dataset": "icbhi"})
+    assert_that(record["audio_model_id"]).is_not_empty()

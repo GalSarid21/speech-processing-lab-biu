@@ -31,7 +31,7 @@ from speech_processing.pipelines.base import log_gpu_memory, release_vram
 from speech_processing.pipelines.inference import InferencePipeline
 from speech_processing.pipelines.judge import JudgePipeline
 from speech_processing.prompts.templates.judge.qwen import build_mmar_judge_conversation
-from speech_processing.runners.base import parse_args
+from speech_processing.runners.base import parse_args, write_run_config
 from speech_processing.utils.consts import (
     COT_END_TAG,
     COT_START_TAG,
@@ -499,6 +499,7 @@ def run_mmar(args):
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     run_dir = os.path.join(config.output_dir, f"mmar_{meta.experiment_name}_{timestamp}")
     os.makedirs(run_dir, exist_ok=True)
+    write_run_config(run_dir, args, config, meta)
 
     logger.info("--- [PHASE 1] DATA LOADING & PREPARATION ---")
     items = load_mmar_requests(config.dataset, meta, is_text_only=meta.text_only)
