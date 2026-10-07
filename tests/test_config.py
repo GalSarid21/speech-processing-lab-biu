@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from speech_processing.config.core import ExperimentMeta
 from speech_processing.config.factories import (
+    THINK_BLOCK_PREFIX,
     VOXTRAL_MODEL_ID,
     create_icbhi_config,
     create_mmar_config,
@@ -137,3 +138,30 @@ def test_tier_rules_are_enforced(rule, overrides):
 def test_experiments_are_core_by_default():
     assert_that(meta().tier).is_equal_to("core")
     assert_that(meta().is_future_work).is_false()
+
+
+@pytest.mark.parametrize("builder", [create_mmar_config, create_icbhi_config])
+def test_server_hosted_reasoning_model_overrides(args, builder):
+    overridden = SimpleNamespace(
+        **vars(args),
+        audio_model_id="stepfun-ai/Step-Audio-R1.1",
+        audio_server_url="http://localhost:9999/v1",
+        audio_max_new_tokens=4096,
+        audio_thinking=True,
+        audio_stop_token_ids=[151665],
+    )
+
+    audio = builder(overridden, meta()).audio_model
+
+    assert_that(audio.server_url).is_equal_to("http://localhost:9999/v1")
+    assert_that(audio.max_new_tokens).is_equal_to(4096)
+    assert_that(audio.reasoning_prefix).is_equal_to(THINK_BLOCK_PREFIX)
+    assert_that(audio.stop_token_ids).is_equal_to([151665])
+
+
+def test_without_overrides_the_audio_model_loads_in_process(args):
+    audio = create_mmar_config(args, meta()).audio_model
+
+    assert_that(audio.server_url).is_none()
+    assert_that(audio.reasoning_prefix).is_none()
+    assert_that(audio.max_new_tokens).is_equal_to(BASE_FIELDS["max_new_tokens"])

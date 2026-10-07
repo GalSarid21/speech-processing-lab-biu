@@ -50,6 +50,17 @@ class AudioModelConfig(BaseModelConfig):
     temperature: float = Field(description="Generation temperature")
     top_p: float = Field(description="Top p sampling")
     target_sr: int = Field(description="Target sample rate for the audio model")
+    server_url: str | None = Field(
+        default=None,
+        description="OpenAI-compatible chat server (e.g. http://localhost:9999/v1) serving the model, for models "
+        "that only run on a vendor's own vLLM build. None loads the model in-process.",
+    )
+    reasoning_prefix: str | None = Field(
+        default=None,
+        description="Text the chat template opens every answer with (a reasoning model's '<think>\\n'); put back "
+        "in front of each answer so the reasoning block is removed before scoring.",
+    )
+    stop_token_ids: list[int] | None = Field(default=None, description="Extra stop token ids for the server")
 
 
 class DatasetConfig(FrozenConfig):

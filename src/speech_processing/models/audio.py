@@ -7,6 +7,7 @@ from urllib.request import urlopen
 import librosa
 from loguru import logger
 
+from speech_processing.adapters.openai_server import OpenAIChatServerAdapter
 from speech_processing.adapters.transformers import TransformersAdapter
 from speech_processing.adapters.vllm import VLLMAdapter
 from speech_processing.config.core import AudioModelConfig, GenerationParams
@@ -175,15 +176,28 @@ class VoxtralAudioEngine(BaseAudioModel):
         self.scorer = scorer
         self.preprocessor = preprocessor or IdentityPreprocessor(config.target_sr)
 
-        self.adapter = VLLMAdapter(
-            model=config.model_id,
-            trust_remote_code=True,
-            max_model_len=config.max_model_len,
-            limit_mm_per_prompt={"audio": VOXTRAL_MAX_AUDIOS_PER_PROMPT},
-            gpu_memory_utilization=config.gpu_memory_utilization,
-            max_num_seqs=config.max_num_seqs,
-            allowed_local_media_path="/",
-        )
+        if config.server_url:
+            if scorer is not None:
+                raise AudioProcessingError(
+                    "Contrastive letter scoring needs prompt log-probs from an in-process engine; "
+                    "it is not supported with --audio-server-url."
+                )
+            self.adapter: VLLMAdapter | OpenAIChatServerAdapter = OpenAIChatServerAdapter(
+                base_url=config.server_url,
+                model=config.model_id,
+                reasoning_prefix=config.reasoning_prefix,
+                stop_token_ids=config.stop_token_ids,
+            )
+        else:
+            self.adapter = VLLMAdapter(
+                model=config.model_id,
+                trust_remote_code=True,
+                max_model_len=config.max_model_len,
+                limit_mm_per_prompt={"audio": VOXTRAL_MAX_AUDIOS_PER_PROMPT},
+                gpu_memory_utilization=config.gpu_memory_utilization,
+                max_num_seqs=config.max_num_seqs,
+                allowed_local_media_path="/",
+            )
         self.tokenizer = self.adapter.tokenizer
 
     def batch_infer(self, requests: list[AudioRequest]) -> list[AudioResponse]:

@@ -88,3 +88,14 @@ def test_mixed_models_in_one_folder_are_flagged(compare, folders):
     )
 
     assert_that(report).contains("mixes audio models")
+
+
+def test_one_answer_to_everything_is_reported(compare, folders):
+    voxtral, qwen = folders
+    report = compare.build_report(
+        "mmar", dir_a=str(voxtral), name_a="voxtral", dir_b=str(qwen), name_b="qwen", num_examples=3
+    )
+
+    assert_that(compare.top_answer(voxtral / "mmar_baseline_20261006_100000")).is_equal_to(("Cat", 100.0))
+    assert_that(compare.top_answer(qwen / "mmar_baseline_20261007_100000")).is_equal_to(("Cat", 50.0))
+    assert_that(report).contains("- baseline / voxtral: 'Cat' (100%)").does_not_contain("baseline / qwen:")

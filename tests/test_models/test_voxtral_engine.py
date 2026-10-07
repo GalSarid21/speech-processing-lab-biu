@@ -196,3 +196,21 @@ def test_temp_files_are_removed_after_batch_infer(monkeypatch, engine_factory, w
 
     assert_that(created).is_length(1)
     assert_that(os.path.exists(created[0])).is_false()
+
+
+def test_server_url_uses_the_chat_server_adapter(mocker, audio_config):
+    vllm_adapter = mocker.patch("speech_processing.models.audio.VLLMAdapter")
+    server_config = audio_config.model_copy(update={"server_url": "http://localhost:9999/v1"})
+
+    engine = VoxtralAudioEngine(server_config)
+
+    vllm_adapter.assert_not_called()
+    assert_that(type(engine.adapter).__name__).is_equal_to("OpenAIChatServerAdapter")
+
+
+def test_server_url_refuses_contrastive_scoring(mocker, audio_config):
+    mocker.patch("speech_processing.models.audio.VLLMAdapter")
+    server_config = audio_config.model_copy(update={"server_url": "http://localhost:9999/v1"})
+
+    with pytest.raises(AudioProcessingError, match="log-probs"):
+        VoxtralAudioEngine(server_config, scorer=mocker.Mock(spec=ContrastiveChoiceScorer))

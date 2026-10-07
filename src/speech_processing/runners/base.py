@@ -33,6 +33,29 @@ def parse_args(description: str):
         help="Override the audio model, e.g. mistralai/Voxtral-Mini-3B-2507 to validate the pipeline on a "
         "GPU too small for the 24B default. Scores are not comparable across models.",
     )
+    parser.add_argument(
+        "--audio-server-url",
+        type=str,
+        default=None,
+        help="Send audio-model requests to this OpenAI-compatible chat server (e.g. http://localhost:9999/v1) "
+        "instead of loading the model in-process. For models that only run on a vendor's vLLM build.",
+    )
+    parser.add_argument(
+        "--audio-max-new-tokens",
+        type=int,
+        default=None,
+        help="Override every experiment's answer-length limit for the audio model; reasoning models need room "
+        "to think before they answer.",
+    )
+    parser.add_argument(
+        "--audio-thinking",
+        action="store_true",
+        help="The audio model's chat template opens a <think> block (Step-Audio-R1.x); scoring then reads only "
+        "the text after </think>, and a cut-off block counts as unparsed.",
+    )
+    parser.add_argument(
+        "--audio-stop-token-ids", type=int, nargs="+", default=None, help="Extra stop token ids for the server"
+    )
     parser.add_argument("--text-model-id", type=str, default=None, help="Override the text-only model")
     parser.add_argument(
         "--max-seqs", type=int, default=DEFAULT_MAX_SEQS, help="vLLM max_num_seqs (engine-side batch size)"
@@ -69,6 +92,8 @@ def write_run_config(run_dir: str, args: argparse.Namespace, config: AppConfig, 
         "experiment": args.experiment,
         "experiment_name": meta.experiment_name,
         "audio_model_id": config.audio_model.model_id if config.audio_model else None,
+        "audio_server_url": config.audio_model.server_url if config.audio_model else None,
+        "audio_max_new_tokens": config.audio_model.max_new_tokens if config.audio_model else None,
         "text_model_id": config.text_model.model_id if config.text_model else None,
         "judge_model_id": config.judge.model_id if config.judge and not getattr(args, "no_judge", False) else None,
         "runs_requested": args.runs,

@@ -22,11 +22,20 @@ _BARE_LETTER_PREFIX = re.compile(r"^\s*[\(\[]?\*{0,2}([A-Z])\*{0,2}[\.\):\]]\s+\
 _LETTER_WITH_TEXT = re.compile(r"^\s*[\(\[]?\*{0,2}([A-Z])\*{0,2}[\.\):\]]\s*(.+?)\s*$")
 
 
+# A reasoning block that was cut off by the token limit: everything after it is unfinished reasoning.
+_UNCLOSED_THINKING = re.compile(r"<think>.*\Z", re.DOTALL | re.IGNORECASE)
+
+
 def strip_thinking(text: str) -> str:
-    """Removes model-specific thinking blocks so only the user-visible answer remains."""
+    """Removes model-specific thinking blocks so only the user-visible answer remains.
+
+    An unclosed `<think>` block (the answer hit the token limit while reasoning) is removed to the end,
+    so the half-finished reasoning is never mined for a stray letter: the answer counts as unparsed.
+    """
     stripped = text
     for pattern in _THINKING_BLOCK_PATTERNS:
         stripped = pattern.sub("", stripped)
+    stripped = _UNCLOSED_THINKING.sub("", stripped)
     return stripped.strip()
 
 

@@ -47,6 +47,21 @@ MMAR_FEW_SHOT_IDS_FILE = "data/mmar_en_speech_few_shot_ids.txt"
 MMAR_ACOUSTIC_FEATURES_FILE = "data/mmar_acoustic_features.jsonl"
 
 SAMPLE_ID_JSONL_KEY = "sample_id"
+THINK_BLOCK_PREFIX = "<think>\n"
+
+
+def _audio_model_config(args, experiment_meta: ExperimentMeta, max_seqs: int, gpu_pct: float) -> AudioModelConfig:
+    """The audio model, with the command-line overrides for server-hosted and reasoning models."""
+    return create_voxtral_config(
+        max_num_seqs=max_seqs,
+        max_new_tokens=getattr(args, "audio_max_new_tokens", None) or experiment_meta.max_new_tokens,
+        gpu_pct=gpu_pct,
+        stop=experiment_meta.stop,
+        model_id=getattr(args, "audio_model_id", None) or VOXTRAL_MODEL_ID,
+        server_url=getattr(args, "audio_server_url", None),
+        reasoning_prefix=THINK_BLOCK_PREFIX if getattr(args, "audio_thinking", False) else None,
+        stop_token_ids=getattr(args, "audio_stop_token_ids", None),
+    )
 
 
 def _parse_sample_ids(sample_ids_file: str | None) -> list[str]:
@@ -106,9 +121,16 @@ def create_voxtral_config(
     gpu_pct: float = DEFAULT_GPU_PCT,
     stop: list[str] | None = None,
     model_id: str = VOXTRAL_MODEL_ID,
+    *,
+    server_url: str | None = None,
+    reasoning_prefix: str | None = None,
+    stop_token_ids: list[int] | None = None,
 ) -> AudioModelConfig:
     return AudioModelConfig(
         model_id=model_id,
+        server_url=server_url,
+        reasoning_prefix=reasoning_prefix,
+        stop_token_ids=stop_token_ids,
         dtype="bfloat16",
         max_num_seqs=max_num_seqs,
         max_new_tokens=max_new_tokens,
@@ -156,7 +178,6 @@ def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
     """Factory for creating a fully initialized ICBHI configuration."""
     gpu_pct = getattr(args, "gpu_pct", DEFAULT_GPU_PCT)
     max_seqs = getattr(args, "max_seqs", DEFAULT_MAX_SEQS)
-    audio_model_id = getattr(args, "audio_model_id", None) or VOXTRAL_MODEL_ID
     text_model_id = getattr(args, "text_model_id", None) or GEMMA_MODEL_ID
 
     dataset_config = DatasetConfig(
@@ -184,13 +205,7 @@ def create_icbhi_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
             model_id=text_model_id,
         )
     else:
-        audio_model = create_voxtral_config(
-            max_num_seqs=max_seqs,
-            max_new_tokens=experiment_meta.max_new_tokens,
-            gpu_pct=gpu_pct,
-            stop=experiment_meta.stop,
-            model_id=audio_model_id,
-        )
+        audio_model = _audio_model_config(args, experiment_meta, max_seqs, gpu_pct)
 
     return AppConfig(
         output_dir=args.output_dir,
@@ -205,7 +220,6 @@ def create_mmar_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
     """Factory for creating a fully initialized MMAR configuration."""
     gpu_pct = getattr(args, "gpu_pct", DEFAULT_GPU_PCT)
     max_seqs = getattr(args, "max_seqs", DEFAULT_MAX_SEQS)
-    audio_model_id = getattr(args, "audio_model_id", None) or VOXTRAL_MODEL_ID
     text_model_id = getattr(args, "text_model_id", None) or GEMMA_MODEL_ID
 
     dataset_config = DatasetConfig(
@@ -231,13 +245,7 @@ def create_mmar_config(args, experiment_meta: ExperimentMeta) -> AppConfig:
             model_id=text_model_id,
         )
     else:
-        audio_model = create_voxtral_config(
-            max_num_seqs=max_seqs,
-            max_new_tokens=experiment_meta.max_new_tokens,
-            gpu_pct=gpu_pct,
-            stop=experiment_meta.stop,
-            model_id=audio_model_id,
-        )
+        audio_model = _audio_model_config(args, experiment_meta, max_seqs, gpu_pct)
 
     return AppConfig(
         output_dir=args.output_dir,

@@ -5,6 +5,11 @@ finished run of each experiment is used. MMAR is compared on majority-vote accur
 test, ICBHI on balanced accuracy with a paired permutation test - the same statistics analyze_runs.py
 reports against a baseline - and the p-values are Holm-corrected across experiments.
 
+Every row also reports each model's most common answer (as option text, so shuffled option orders still
+count as one answer) and its share of all answers: a model that gives one answer to everything scores
+exactly 1/k balanced accuracy, which can look like a significant win over a model that is worse than
+constant, and this column makes that visible.
+
 Every row also reports how often each model answered in a CJK script instead of English, and the report
 ends with verbatim examples - answers written in Chinese first, then English answers that merely quote a
 Chinese word from the audio - so a model drifting out of English (Qwen on reasoning prompts) can be traced
@@ -17,6 +22,7 @@ import argparse
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -33,13 +39,16 @@ from analyze_runs import (
 )
 from loguru import logger
 
+from speech_processing.evaluation.answer_parsing import parse_choice_letter
 from speech_processing.evaluation.language import contains_cjk, is_non_english
 from speech_processing.runners.base import RUN_CONFIG_FILE
 
 FINISHED_MARKERS = ("metrics.txt", "stability_report.json")
 UNRECORDED_MODEL = "unrecorded (run predates run_config.json)"
+UNPARSED_ANSWER = "(unparsed)"
 EXCERPT_CHARS = 200
 DEFAULT_EXAMPLES = 3
+COLLAPSE_PCT = 90.0
 _PCT = 100.0
 
 
@@ -61,27 +70,49 @@ def audio_model_of(run_dir: Path) -> str:
     return json.loads(config_file.read_text()).get("audio_model_id") or UNRECORDED_MODEL
 
 
+def _records(run_dir: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for raw_file in sorted(run_dir.glob("raw_output*.jsonl"))
+        for line in raw_file.read_text().splitlines()
+        if line.strip()
+    ]
+
+
 def language_check(run_dir: Path) -> dict:
     """Over all runs: share of non-English answers, plus (item_id, excerpt) for every answer with CJK text."""
     total = 0
     non_english: list[tuple[str, str]] = []
     quotes_cjk: list[tuple[str, str]] = []
-    for raw_file in sorted(run_dir.glob("raw_output*.jsonl")):
-        for line in raw_file.read_text().splitlines():
-            if not line.strip():
-                continue
-            record = json.loads(line)
-            total += 1
-            text = record.get("generated_text") or record.get("final_turn_text") or ""
-            if not contains_cjk(text):
-                continue
-            target = non_english if is_non_english(text) else quotes_cjk
-            target.append((item_key(record), text.replace("\n", " ")[:EXCERPT_CHARS]))
+    for record in _records(run_dir):
+        total += 1
+        text = record.get("generated_text") or record.get("final_turn_text") or ""
+        if not contains_cjk(text):
+            continue
+        target = non_english if is_non_english(text) else quotes_cjk
+        target.append((item_key(record), text.replace("\n", " ")[:EXCERPT_CHARS]))
     return {
         "pct": len(non_english) / total * _PCT if total else 0.0,
         "non_english": non_english,
         "quotes_cjk": quotes_cjk,
     }
+
+
+def answer_text(record: dict) -> str:
+    """The chosen option's text, or UNPARSED_ANSWER. Text, not letter: shuffled arms reorder the options."""
+    choices = list((record.get("metadata") or {}).get("choices") or [])
+    letter = parse_choice_letter(record.get("final_turn_text") or record.get("generated_text") or "", choices)
+    index = ord(letter) - ord("A") if letter else -1
+    return choices[index] if 0 <= index < len(choices) else UNPARSED_ANSWER
+
+
+def top_answer(run_dir: Path) -> tuple[str, float]:
+    """Most common answer over all runs, and its share of all answers in percent."""
+    counts = Counter(answer_text(record) for record in _records(run_dir))
+    if not counts:
+        return UNPARSED_ANSWER, 0.0
+    answer, count = counts.most_common(1)[0]
+    return answer, count / sum(counts.values()) * _PCT
 
 
 def holm(p_values: list[float]) -> list[float]:
@@ -119,6 +150,8 @@ def compare_experiment(dataset: str, run_a: Path, run_b: Path) -> dict:
         "p": p_value,
         "lang_a": language_check(run_a),
         "lang_b": language_check(run_b),
+        "top_a": top_answer(run_a),
+        "top_b": top_answer(run_b),
     }
 
 
@@ -152,8 +185,8 @@ def build_report(dataset: str, *, dir_a: str, name_a: str, dir_b: str, name_b: s
 
     lines += [
         f"| Experiment | n | {metric} {name_a} | {metric} {name_b} | Δ ({name_b} - {name_a}) | p | Holm "
-        f"| non-English % {name_a} | non-English % {name_b} |",
-        "|:--|--:|--:|--:|--:|--:|--:|--:|--:|",
+        f"| top answer % {name_a} | top answer % {name_b} | non-English % {name_a} | non-English % {name_b} |",
+        "|:--|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
     ]
     for name in shared:
         row = rows[name]
@@ -161,8 +194,23 @@ def build_report(dataset: str, *, dir_a: str, name_a: str, dir_b: str, name_b: s
         lines.append(
             f"| {name} | {row['n']} | {_fmt(row['score_a'])} | {_fmt(row['score_b'])} | "
             f"{'-' if delta is None else f'{delta:+.1f}'} | {row['p']:.3f} | {row['holm']:.3f} | "
+            f"{row['top_a'][1]:.0f} | {row['top_b'][1]:.0f} | "
             f"{row['lang_a']['pct']:.1f} | {row['lang_b']['pct']:.1f} |"
         )
+    lines += [
+        "",
+        "top answer % = share of all answers (all runs) that are the single most common answer. Near 100% means "
+        "the model gave one answer to everything; its score then says nothing about the audio.",
+    ]
+    collapsed = [
+        (name, model, top[0], top[1])
+        for name in shared
+        for model, top in ((name_a, rows[name]["top_a"]), (name_b, rows[name]["top_b"]))
+        if top[1] >= COLLAPSE_PCT
+    ]
+    if collapsed:
+        lines += ["", f"## Arms where one answer makes up at least {COLLAPSE_PCT:.0f}% of all answers", ""]
+        lines += [f"- {name} / {model}: {answer!r} ({pct:.0f}%)" for name, model, answer, pct in collapsed]
 
     only_a, only_b = sorted(set(latest_a) - set(latest_b)), sorted(set(latest_b) - set(latest_a))
     if only_a or only_b:

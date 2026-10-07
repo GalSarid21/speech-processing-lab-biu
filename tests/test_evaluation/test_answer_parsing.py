@@ -37,6 +37,8 @@ def test_parse_choice_letter(text, expected):
         ("<think>hidden</think>visible", "visible"),
         ("<|channel>thought about it<channel|>visible", "visible"),
         ("plain", "plain"),
+        ("<think>cut off while reasoning about B", ""),
+        ("<think>done</think>B. Cat<think>cut off", "B. Cat"),
     ],
 )
 def test_strip_thinking(text, expected):
@@ -81,3 +83,8 @@ ICBHI = [
 )
 def test_answer_line_in_the_middle_of_prose(text, expected):
     assert_that(parse_choice_letter(text, ICBHI)).is_equal_to(expected)
+
+
+def test_cut_off_reasoning_is_unparsed_not_mined_for_a_letter():
+    assert_that(parse_choice_letter("<think>\nThe answer is B, but wait", CHOICES)).is_none()
+    assert_that(parse_choice_letter("<think>\nmaybe A</think>\nB. Stuttering", CHOICES)).is_equal_to("B")
