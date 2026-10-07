@@ -4,9 +4,16 @@ import pytest
 from assertpy import assert_that
 
 from speech_processing.config.core import JudgeConfig
-from speech_processing.data.dtos import EvaluationResult, ItemMetadata, JudgeRequest, MMAREvaluationResult
+from speech_processing.data.dtos import (
+    ChoiceExtractionResult,
+    EvaluationResult,
+    ItemMetadata,
+    JudgeRequest,
+    MMAREvaluationResult,
+)
 from speech_processing.models.judge import QwenJudge
 from speech_processing.prompts.templates.judge.qwen import (
+    build_icbhi_choice_judge_conversation,
     build_icbhi_judge_conversation,
     build_mmar_judge_conversation,
 )
@@ -73,3 +80,10 @@ def test_judge_parses_or_falls_back(
 
     sent_schema = json.loads(adapter.generate_batch.call_args.kwargs["sampling_params"].json_schema)
     assert_that(sent_schema["properties"]).is_equal_to(schema.model_json_schema()["properties"])
+
+
+@pytest.mark.parametrize("template", [build_mmar_judge_conversation, build_icbhi_choice_judge_conversation])
+def test_judge_prompt_names_every_schema_field(template, judge_request):
+    system_prompt = template(judge_request)[0]["content"]
+    for field in ChoiceExtractionResult.model_fields:
+        assert_that(system_prompt).contains(f'"{field}"')

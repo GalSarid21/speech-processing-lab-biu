@@ -35,6 +35,11 @@ def build_icbhi_judge_conversation(req: JudgeRequest) -> list[dict[str, str]]:
     ]
 
 
+# Spelled out in the prompt: guided decoding enforces the schema, but a judge that has not been told the
+# field names reasons about what they might be instead of extracting the answer.
+_CHOICE_JSON_FORMAT = '{"reasoning": "<one sentence>", "extracted_choice": "<one letter, or Unknown>"}'
+
+
 def build_mmar_judge_conversation(req: JudgeRequest) -> list[dict[str, str]]:
     """The MMAR judge only EXTRACTS the chosen letter; correctness is computed in code."""
     system_content = (
@@ -47,7 +52,8 @@ def build_mmar_judge_conversation(req: JudgeRequest) -> list[dict[str, str]]:
         "2. If the model wrote the text of a choice instead of a letter, output that choice's letter.\n"
         '3. If the model selected no choice, or more than one, output "Unknown".\n'
         "4. Do not judge whether the answer is right. Only extract it.\n"
-        "5. You must output a JSON object matching the requested schema.\n"
+        "5. Respond with only this JSON object, on one line:\n"
+        f"{_CHOICE_JSON_FORMAT}\n"
     )
 
     user_content = (
@@ -73,7 +79,8 @@ def build_icbhi_choice_judge_conversation(req: JudgeRequest) -> list[dict[str, s
         '3. If the model named a condition that is not among the options, output "Unknown".\n'
         '4. If the model selected no option, or more than one, output "Unknown".\n'
         "5. Do not judge whether the answer is right. Only extract it.\n"
-        "6. You must output a JSON object matching the requested schema.\n"
+        "6. Respond with only this JSON object, on one line:\n"
+        f"{_CHOICE_JSON_FORMAT}\n"
     )
 
     user_content = (

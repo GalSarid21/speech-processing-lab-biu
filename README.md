@@ -35,7 +35,7 @@ Using stratified random sampling (excluding the statistically negligible Asthma 
 
 ## ⚙️ Experimental Setup & Metrics
 
-**Hardware**: NVIDIA A100-SXM4 (80GB VRAM)
+**Hardware**: NVIDIA RTX PRO 6000 Blackwell (96 GB VRAM), single GPU
 
 ### Deterministic Sampling
 To maximize the likelihood that the Audio-Language Model strictly respects our complex prompt guardrails (e.g., Honesty clauses, Base Rates), we explicitly disabled probabilistic sampling. The ALM runs with **Greedy Decoding (`do_sample=False`)**, ensuring it always takes the highest-probability logical path rather than "creatively" deviating and hallucinating.

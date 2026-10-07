@@ -6,6 +6,8 @@ from assertpy import assert_that
 
 from speech_processing.config.core import ExperimentMeta
 from speech_processing.data.dataset import (
+    MAX_IDENTICAL_TRANSCRIPT_SHARE,
+    MIN_TRANSCRIPTS_FOR_DEGENERACY_CHECK,
     MMAR_EXCLUDED_ITEMS,
     MMAR_GOLD_CORRECTIONS,
     get_mmar_few_shot_turns,
@@ -161,6 +163,35 @@ def test_known_unscoreable_item_is_excluded(mocker, mmar_config):
     items = load_mmar_requests(config, meta())
 
     assert_that([request.metadata.item_id for request, _ in items]).is_equal_to([MMAR_ROWS[0]["id"]])
+
+
+def _transcript_config(mmar_config, tmp_path, transcripts: dict[str, str] | None):
+    path = tmp_path / "whisper_transcripts_under_test.json"
+    if transcripts is not None:
+        path.write_text(json.dumps(transcripts))
+    return mmar_config.model_copy(update={"transcripts_file": str(path)})
+
+
+def _degenerate_transcripts() -> dict[str, str]:
+    """More than the allowed share of entries are the same stock phrase Whisper emits for silence."""
+    total = MIN_TRANSCRIPTS_FOR_DEGENERACY_CHECK * 2
+    num_identical = int(total * MAX_IDENTICAL_TRANSCRIPT_SHARE) + 1
+    return {f"ID{i}": "you" if i < num_identical else f"real speech {i}" for i in range(total)}
+
+
+@pytest.mark.parametrize("transcripts", [None, _degenerate_transcripts()], ids=["missing", "degenerate"])
+def test_transcript_arm_rejects_unusable_transcripts(mocker, mmar_config, tmp_path, transcripts):
+    mocker.patch("speech_processing.data.dataset._load_mmar_frame", return_value=pd.DataFrame(MMAR_ROWS))
+    config = _transcript_config(mmar_config, tmp_path, transcripts)
+
+    assert_that(load_mmar_requests).raises(DatasetIntegrityError).when_called_with(config, meta(use_transcript=True))
+
+
+def test_arm_without_transcripts_ignores_the_transcript_file(mocker, mmar_config, tmp_path):
+    mocker.patch("speech_processing.data.dataset._load_mmar_frame", return_value=pd.DataFrame(MMAR_ROWS))
+    config = _transcript_config(mmar_config, tmp_path, _degenerate_transcripts())
+
+    assert_that(load_mmar_requests(config, meta())).is_not_empty()
 
 
 # --------------------------------------------------------------------------------------

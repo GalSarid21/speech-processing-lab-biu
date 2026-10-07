@@ -59,7 +59,12 @@ class VLLMAdapter(BaseGenerationAdapter):
             # 1. Newest API (vLLM >= 0.6.1)
             from vllm.sampling_params import StructuredOutputsParams
 
-            return sampling_params_cls(**kwargs, structured_outputs=StructuredOutputsParams(json=json_schema))
+            # disable_any_whitespace: the grammar otherwise allows unlimited whitespace between JSON tokens,
+            # and a judge can then emit blank lines until max_tokens, leaving the object unclosed.
+            return sampling_params_cls(
+                **kwargs,
+                structured_outputs=StructuredOutputsParams(json=json_schema, disable_any_whitespace=True),
+            )
         except (ImportError, TypeError, ValueError):
             try:
                 # 2. Recent API (vLLM ~ 0.5.x)

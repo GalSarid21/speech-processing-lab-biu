@@ -2,6 +2,7 @@
 
 import json
 import os
+from collections import Counter
 
 import pandas as pd
 from datasets import load_dataset
@@ -36,6 +37,12 @@ from speech_processing.utils.consts import (
 from speech_processing.utils.exceptions import DatasetIntegrityError, FewShotLeakageError
 
 RANDOM_STATE = 42
+
+# A transcript file in which most entries are one identical string was built from audio that never
+# loaded: Whisper turns silence into a stock phrase ("you"). Feeding it to a transcript arm would
+# silently turn that arm into a question-only arm, so it is rejected instead.
+MAX_IDENTICAL_TRANSCRIPT_SHARE = 0.5
+MIN_TRANSCRIPTS_FOR_DEGENERACY_CHECK = 10
 
 
 MMAR_ID_COLUMN = "id"
@@ -94,12 +101,29 @@ def _load_mmar_frame(config: DatasetConfig) -> pd.DataFrame:
     return load_dataset(config.dataset_id, split=config.split, streaming=False).to_pandas()
 
 
-def _load_transcripts(config: DatasetConfig) -> dict[str, str]:
-    if not config.transcripts_file or not os.path.exists(config.transcripts_file):
-        logger.warning(f"No transcripts file at {config.transcripts_file}; proceeding without transcripts.")
+def _load_transcripts(config: DatasetConfig, required: bool) -> dict[str, str]:
+    """Loads the Whisper transcripts. When an experiment uses them, a missing or degenerate file is fatal."""
+    if not required:
         return {}
+    if not config.transcripts_file or not os.path.exists(config.transcripts_file):
+        raise DatasetIntegrityError(
+            f"Transcripts file not found: {config.transcripts_file}. Run scripts/preprocess_transcripts.py first."
+        )
     with open(config.transcripts_file) as f:
-        return json.load(f)
+        transcripts: dict[str, str] = json.load(f)
+    _validate_transcripts(transcripts, config.transcripts_file)
+    return transcripts
+
+
+def _validate_transcripts(transcripts: dict[str, str], path: str) -> None:
+    if len(transcripts) < MIN_TRANSCRIPTS_FOR_DEGENERACY_CHECK:
+        return
+    text, count = Counter(transcripts.values()).most_common(1)[0]
+    if count / len(transcripts) > MAX_IDENTICAL_TRANSCRIPT_SHARE:
+        raise DatasetIntegrityError(
+            f"{count} of {len(transcripts)} transcripts in {path} are the identical text {text!r}, so the file was "
+            "built from audio that did not load. Rebuild it with scripts/preprocess_transcripts.py."
+        )
 
 
 def load_acoustic_evidence(path: str | None) -> dict[str, AcousticEvidence]:
@@ -216,7 +240,7 @@ def load_mmar_requests(
     """Loads the MMAR eval split and renders one request per (item, choice-order variant)."""
     df = _load_mmar_frame(config)
     sample_df = _drop_excluded_items(_select_eval_rows(df, config))
-    transcripts = _load_transcripts(config)
+    transcripts = _load_transcripts(config, required=bool(experiment_meta and experiment_meta.use_transcript))
 
     evidence_by_id: dict[str, AcousticEvidence] = {}
     if experiment_meta is not None and experiment_meta.uses_acoustic_evidence:
@@ -300,11 +324,11 @@ def read_few_shot_ids(config: DatasetConfig) -> list[str]:
         return [line.strip() for line in f if line.strip()]
 
 
-def _load_mmar_items(config: DatasetConfig, ids: list[str]) -> list[MMARItem]:
+def _load_mmar_items(config: DatasetConfig, ids: list[str], meta: ExperimentMeta) -> list[MMARItem]:
     if not ids:
         return []
     df = _drop_excluded_items(_load_mmar_frame(config))
-    transcripts = _load_transcripts(config)
+    transcripts = _load_transcripts(config, required=meta.few_shot_include_transcript)
     by_id = {str(row[MMAR_ID_COLUMN]): row for _, row in df[df[MMAR_ID_COLUMN].isin(ids)].iterrows()}
     return [_parse_mmar_row(by_id[item_id], config, transcripts) for item_id in ids if item_id in by_id]
 
@@ -337,14 +361,14 @@ def get_mmar_few_shot_turns(
 ) -> tuple[list[str], list[FewShotTurn]]:
     """Returns the shot ids alongside the turns so the caller can assert disjointness."""
     shot_ids = read_few_shot_ids(config)[:num_shots]
-    items = _load_mmar_items(config, shot_ids)
+    items = _load_mmar_items(config, shot_ids, meta)
     turns = [_build_few_shot_turn(item, meta) for item in items]
     logger.info(f"Successfully loaded {len(turns)} authentic MMAR few-shot examples.")
     return [item.item_id for item in items], turns
 
 
 def get_mmar_few_shot_turns_pool(config: DatasetConfig, meta: ExperimentMeta) -> dict[str, FewShotTurn]:
-    items = _load_mmar_items(config, read_few_shot_ids(config))
+    items = _load_mmar_items(config, read_few_shot_ids(config), meta)
     return {item.item_id: _build_few_shot_turn(item, meta) for item in items}
 
 

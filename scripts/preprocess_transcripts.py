@@ -1,9 +1,9 @@
 import argparse
 import json
 import os
+import sys
 
 import librosa
-import numpy as np
 import torch
 import yaml
 from datasets import load_dataset
@@ -13,13 +13,11 @@ from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
 
 def audio_generator(items: list[dict], target_sr: int, path_col: str):
+    # No fallback on a failed load: substituting silence makes Whisper emit a stock phrase ("you"),
+    # which then looks like a real transcript to every experiment that reads the file.
     for item in items:
-        try:
-            audio, sr = librosa.load(item[path_col], sr=target_sr)
-            yield {"raw": audio, "sampling_rate": sr}
-        except (OSError, ValueError, RuntimeError) as e:
-            logger.error(f"Error loading {item[path_col]}: {e}")
-            yield {"raw": np.zeros(target_sr), "sampling_rate": target_sr}
+        audio, sr = librosa.load(item[path_col], sr=target_sr)
+        yield {"raw": audio, "sampling_rate": sr}
 
 
 def main():
@@ -103,6 +101,14 @@ def main():
         audio_rel_path = str(row[audio_col])
         audio_path = os.path.join(audio_base_dir, audio_rel_path.lstrip("./"))
         dataset_items.append({"id": item_id, "ref_text": str(row.get(ref_col, "")), "audio_path": audio_path})
+
+    missing = [item["audio_path"] for item in dataset_items if not os.path.exists(item["audio_path"])]
+    if missing:
+        logger.error(
+            f"{len(missing)} of {len(dataset_items)} audio files are missing (e.g. {missing[0]}). "
+            f"Check audio_base_dir ({audio_base_dir}); nothing was transcribed."
+        )
+        sys.exit(1)
 
     results = {}
     md_lines = [f"# Transcripts Review ({model_id})\n", "| ID | Reference Text | Whisper Transcript |", "|---|---|---|"]

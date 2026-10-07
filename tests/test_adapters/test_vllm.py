@@ -80,3 +80,11 @@ def test_continue_final_message_is_set_only_for_prefills(mocker, prompts, expect
     adapter.generate_batch(prompts, GenerationParams(temperature=0.5, top_p=0.5, max_new_tokens=8))
 
     assert_that("continue_final_message" in llm.chat.call_args.kwargs).is_equal_to(expects_continue)
+
+
+def test_structured_outputs_forbid_free_whitespace():
+    """Unlimited whitespace lets a judge emit blank lines until max_tokens and never close the JSON."""
+    params = VLLMAdapter._structured_params(dict, {"temperature": 0.0}, '{"type": "object"}')
+
+    structured = params["structured_outputs"]
+    assert_that(structured.kwargs).is_equal_to({"json": '{"type": "object"}', "disable_any_whitespace": True})
