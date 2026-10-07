@@ -57,6 +57,7 @@ def mocked_runner(mocker):
         "judge": mocker.patch("speech_processing.runners.mmar.QwenJudge", autospec=True),
         "inference": mocker.patch("speech_processing.runners.mmar.InferencePipeline", autospec=True),
         "judge_pipeline": mocker.patch("speech_processing.runners.mmar.JudgePipeline", autospec=True),
+        "parser_pipeline": mocker.patch("speech_processing.runners.mmar.ParserOnlyPipeline", autospec=True),
     }
 
     mocker.patch("speech_processing.runners.mmar.release_vram")
@@ -65,7 +66,7 @@ def mocked_runner(mocker):
     return patched
 
 
-def build_args(experiment: str, output_dir, runs: int = 1, dataset: str = "mmar") -> Namespace:
+def build_args(experiment: str, output_dir, runs: int = 1, dataset: str = "mmar", no_judge: bool = False) -> Namespace:
     return Namespace(
         dataset=dataset,
         experiment=experiment,
@@ -73,6 +74,7 @@ def build_args(experiment: str, output_dir, runs: int = 1, dataset: str = "mmar"
         num_samples=1,
         sample_ids_file=None,
         runs=runs,
+        no_judge=no_judge,
     )
 
 
@@ -126,3 +128,19 @@ def test_few_shots_are_attached(mocked_runner, tmp_path, key):
 
     requests = mocked_runner["inference"].return_value.run.call_args.args[0]
     assert_that(requests[0].few_shot_turns).is_length(1)
+
+
+@pytest.mark.parametrize(
+    "no_judge, expected_pipeline, unexpected_pipeline",
+    [(True, "parser_pipeline", "judge_pipeline"), (False, "judge_pipeline", "parser_pipeline")],
+)
+def test_no_judge_flag_selects_the_evaluation_pipeline(
+    mocked_runner, tmp_path, no_judge, expected_pipeline, unexpected_pipeline
+):
+    """A server-hosted audio model holds the GPU, so --no-judge must keep the judge from loading at all."""
+    run_mmar(build_args("v1", tmp_path, no_judge=no_judge))
+
+    mocked_runner[expected_pipeline].assert_called_once()
+    mocked_runner[unexpected_pipeline].assert_not_called()
+    if no_judge:
+        mocked_runner["judge"].assert_not_called()

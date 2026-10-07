@@ -29,7 +29,7 @@ from speech_processing.pipelines.aggregation import (
 )
 from speech_processing.pipelines.base import log_gpu_memory, release_vram
 from speech_processing.pipelines.inference import InferencePipeline
-from speech_processing.pipelines.judge import JudgePipeline
+from speech_processing.pipelines.judge import JudgePipeline, ParserOnlyPipeline
 from speech_processing.prompts.templates.judge.qwen import build_mmar_judge_conversation
 from speech_processing.runners.base import parse_args, write_run_config
 from speech_processing.utils.consts import (
@@ -522,20 +522,27 @@ def run_mmar(args):
 
     inference_pipeline = None
     release_vram()
-    logger.info(f"Waiting {JUDGE_LOAD_DELAY_S} seconds before loading Judge...")
-    time.sleep(JUDGE_LOAD_DELAY_S)
 
-    logger.info("--- [PHASE 4] INITIALIZING JUDGE ENGINE ---")
-    judge_pipeline = JudgePipeline(
-        QwenJudge(
-            config.judge,
-            template_func=build_mmar_judge_conversation,
-            schema_class=MMAREvaluationResult,
-        ),
-        metrics_calculator=calculate_mmar_metrics,
-    )
+    if getattr(args, "no_judge", False):
+        # The parser is the primary MMAR metric; the judge only adds a secondary one. Skipping it is required
+        # when the audio model is served from the same GPU (--audio-server-url) and the judge would not fit.
+        logger.info("--- [PHASE 4] JUDGE SKIPPED: the parser alone scores the answers (judge metrics stay empty) ---")
+        judge_pipeline = ParserOnlyPipeline(metrics_calculator=calculate_mmar_metrics)
+    else:
+        logger.info(f"Waiting {JUDGE_LOAD_DELAY_S} seconds before loading Judge...")
+        time.sleep(JUDGE_LOAD_DELAY_S)
 
-    logger.info(f"--- [PHASE 5] RUNNING JUDGE EVALUATION ({num_runs} RUNS) ---")
+        logger.info("--- [PHASE 4] INITIALIZING JUDGE ENGINE ---")
+        judge_pipeline = JudgePipeline(
+            QwenJudge(
+                config.judge,
+                template_func=build_mmar_judge_conversation,
+                schema_class=MMAREvaluationResult,
+            ),
+            metrics_calculator=calculate_mmar_metrics,
+        )
+
+    logger.info(f"--- [PHASE 5] RUNNING EVALUATION ({num_runs} RUNS) ---")
     all_metrics = [judge_pipeline.run(temp_files[i], final_outputs[i], metrics_outputs[i], i) for i in range(num_runs)]
 
     judge_pipeline = None
