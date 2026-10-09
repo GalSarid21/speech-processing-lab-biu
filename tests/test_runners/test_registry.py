@@ -3,8 +3,9 @@ from assertpy import assert_that
 
 from speech_processing.data.dataset import load_mmar_requests
 from speech_processing.data.dtos import AudioRequest, TextRequest
+from speech_processing.models.preprocessing import IdentityPreprocessor, SilenceReplacementPreprocessor
 from speech_processing.runners.base import experiment_keys
-from speech_processing.runners.mmar import ExperimentVersion
+from speech_processing.runners.mmar import ExperimentVersion, build_engine
 from speech_processing.utils.consts import COT_START_TAG
 from speech_processing.utils.exceptions import DeprecatedExperimentError
 
@@ -51,6 +52,7 @@ def test_experiment_names_are_unique():
     "key, marker",
     [
         ("v3", TRANSCRIPT_MARKER),
+        ("v29", TRANSCRIPT_MARKER),
         ("v13", TRANSCRIPT_MARKER),
         ("v18", DIARIZED_MARKER),
         ("v21", DIARIZED_MARKER),
@@ -62,6 +64,25 @@ def test_evidence_reaches_the_prompt(patched_mmar, mmar_config, key, marker):
     exp = ExperimentVersion[key].value
     instruction = load_mmar_requests(mmar_config, exp, is_text_only=exp.text_only)[0][0].instruction
     assert_that(last_turn(instruction)).contains(marker)
+
+
+def test_transcript_silence_is_the_transcript_arm_without_sound():
+    with_audio = ExperimentVersion.v3.value.model_dump(exclude={"experiment_name", "replace_audio_with_silence"})
+    silent = ExperimentVersion.v29.value.model_dump(exclude={"experiment_name", "replace_audio_with_silence"})
+
+    assert_that(silent).is_equal_to(with_audio)
+    assert_that(ExperimentVersion.v29.value.replace_audio_with_silence).is_true()
+
+
+@pytest.mark.parametrize("key, preprocessor", [("v3", IdentityPreprocessor), ("v29", SilenceReplacementPreprocessor)])
+def test_mmar_engine_gets_the_silence_preprocessor_only_for_the_silence_arm(mocker, key, preprocessor):
+    engine_class = mocker.patch("speech_processing.runners.mmar.VoxtralAudioEngine")
+    config = mocker.MagicMock()
+    config.audio_model.target_sr = 16_000
+
+    build_engine(config, ExperimentVersion[key].value)
+
+    assert_that(engine_class.call_args.kwargs["preprocessor"]).is_instance_of(preprocessor)
 
 
 def test_audio_first_warning_reaches_the_prompt(patched_mmar, mmar_config):
@@ -114,7 +135,7 @@ def test_unknown_version_raises_value_error():
     assert_that(ExperimentVersion.get_version).raises(ValueError).when_called_with("v999")
 
 
-CORE_KEYS = {"v1", "v2", "v3", "v7", "v13", "v18", "v20", "v22", "v23", "v25", "v27", "v28"}
+CORE_KEYS = {"v1", "v2", "v3", "v7", "v13", "v18", "v20", "v22", "v23", "v25", "v27", "v28", "v29"}
 
 
 def test_the_core_tier_is_the_reported_set():
@@ -130,6 +151,7 @@ def test_core_covers_the_baseline_the_split_and_every_new_family():
     assert_that(core).contains("v25")  # T3 contrastive
     assert_that(core).contains("v27")  # T4 consistency
     assert_that(core).contains("v28")  # T5 framing
+    assert_that(core).contains("v29")  # modality interference control
 
 
 @pytest.mark.parametrize("key", sorted(set(ACTIVE_KEYS) - CORE_KEYS))

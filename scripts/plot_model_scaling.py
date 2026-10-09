@@ -33,6 +33,7 @@ BASELINE = "baseline"
 CHANCE_PCT = 32.0
 AUDIO_DEPENDENT_CHANCE_PCT = 33.2
 _PCT = 100.0
+TICK_MERGE_RATIO = 1.25
 
 
 def accuracy(correct: dict[str, bool], items: set[str] | None = None) -> float:
@@ -64,6 +65,19 @@ def score_models(models: list[dict], items_subset: set[str] | None = None) -> tu
     return shared, scored
 
 
+def _size_ticks(sizes: list[float]) -> tuple[list[float], list[str]]:
+    """One tick per size; sizes too close to label apart on a log axis share one tick ("30/32B")."""
+    groups: list[list[float]] = []
+    for size in sizes:
+        if groups and size / groups[-1][-1] < TICK_MERGE_RATIO:
+            groups[-1].append(size)
+        else:
+            groups.append([size])
+    positions = [float(np.exp(np.mean(np.log(group)))) for group in groups]
+    labels = ["/".join(f"{size:g}" for size in group) + "B" for group in groups]
+    return positions, labels
+
+
 def _panel(axis, scored: list[dict], title: str, chance: float, text_only: float | None) -> None:
     families = sorted({model["family"] for model in scored})
     colors = dict(zip(families, plt.rcParams["axes.prop_cycle"].by_key()["color"], strict=False))
@@ -81,7 +95,8 @@ def _panel(axis, scored: list[dict], title: str, chance: float, text_only: float
         axis.axhline(text_only, ls=":", color="black", lw=1, label=f"text-only on transcript ({text_only:.1f}%)")
     axis.set_xscale("log")
     sizes = sorted({m["params_b"] for m in scored})
-    axis.set_xticks(sizes, [f"{size:g}B" for size in sizes], minor=False)
+    axis.set_xticks(*_size_ticks(sizes), minor=False)
+    axis.tick_params(axis="x", labelrotation=35)
     axis.xaxis.set_minor_locator(mpl.ticker.NullLocator())
     axis.set_xlim(min(sizes) / 1.6, max(sizes) * 2.2)
     axis.set_xlabel("parameters (billions, log scale)")

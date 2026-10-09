@@ -20,6 +20,7 @@ from speech_processing.evaluation.stability import calculate_stability
 from speech_processing.models.audio import VoxtralAudioEngine
 from speech_processing.models.contrastive import ContrastiveChoiceScorer
 from speech_processing.models.judge import QwenJudge
+from speech_processing.models.preprocessing import build_preprocessor
 from speech_processing.models.presentation import build_presentation
 from speech_processing.models.text import GemmaTextModel
 from speech_processing.pipelines.aggregation import (
@@ -408,6 +409,21 @@ class ExperimentVersion(Enum):
         batch_size=8,
     )
 
+    # ---------------------------------------------------------
+    # Modality interference control
+    # ---------------------------------------------------------
+    # v3 with the recording replaced by duration-matched silence: same prompt, same transcript, no sound.
+    # v3 vs v29 on the transcript-solvable items asks whether hearing the audio helps or hurts the
+    # model's reading of the words; v29 vs v13 compares its language model with a text-only one.
+    v29 = ExperimentMeta(
+        experiment_name="transcript_silence",
+        prompt=_TRANSCRIPT_PROMPT,
+        max_new_tokens=256,
+        batch_size=8,
+        use_transcript=True,
+        replace_audio_with_silence=True,
+    )
+
     @classmethod
     def get_version(cls, version_str: str) -> "ExperimentVersion":
         try:
@@ -478,6 +494,7 @@ def build_engine(config: AppConfig, meta: ExperimentMeta) -> GemmaTextModel | Vo
         audio_config,
         presentation=build_presentation(meta, audio_config.target_sr),
         scorer=scorer,
+        preprocessor=build_preprocessor(meta, audio_config.target_sr),
     )
 
 
