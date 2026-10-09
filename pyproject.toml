@@ -1,7 +1,7 @@
 [project]
 name = "speech-processing-lab-biu"
 version = "0.2.0"
-description = "Speech processing lab: ICBHI respiratory diagnostics and MMAR audio reasoning pipelines."
+description = "Digital Speech Processing course project (Bar-Ilan University): do audio-language models hear, or only read? MMAR and ICBHI evaluation pipelines."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [

@@ -222,8 +222,6 @@ setup_project.py
 /data/
 *.ipynb
 scripts/generate_notebook.py
-# Ignored Insights
-insights/
 
 todo/
 

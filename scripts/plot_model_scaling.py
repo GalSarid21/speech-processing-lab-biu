@@ -34,6 +34,8 @@ CHANCE_PCT = 32.0
 AUDIO_DEPENDENT_CHANCE_PCT = 33.2
 _PCT = 100.0
 TICK_MERGE_RATIO = 1.25
+# Same family colours as the report figures (scripts/build_report_figures.py); other families use the default cycle.
+FAMILY_COLOURS = {"Voxtral": "#2a78d6", "Qwen Omni": "#eb6834", "Step-Audio": "#1baf7a"}
 
 
 def accuracy(correct: dict[str, bool], items: set[str] | None = None) -> float:
@@ -80,7 +82,8 @@ def _size_ticks(sizes: list[float]) -> tuple[list[float], list[str]]:
 
 def _panel(axis, scored: list[dict], title: str, chance: float, text_only: float | None) -> None:
     families = sorted({model["family"] for model in scored})
-    colors = dict(zip(families, plt.rcParams["axes.prop_cycle"].by_key()["color"], strict=False))
+    default = dict(zip(families, plt.rcParams["axes.prop_cycle"].by_key()["color"], strict=False))
+    colors = {family: FAMILY_COLOURS.get(family, default[family]) for family in families}
     for family in families:
         members = sorted((m for m in scored if m["family"] == family), key=lambda m: m["params_b"])
         xs = [m["params_b"] for m in members]

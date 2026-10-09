@@ -1,120 +1,296 @@
-# 🫁 Speech Processing Lab BIU: Lung Sound Diagnostics Research
+# Do Audio-Language Models Hear, or Only Read?
 
-**Course**: Speech Processing, Prof. Sharon Ganot, Bar Ilan University  
-**Goal**: Evaluate and improve zero-shot & few-shot diagnostic capabilities of Audio-Language Models (ALMs) on respiratory audio using advanced prompting and context management techniques without fine-tuning.
+**Prompting, scale and the limits of zero-shot audio understanding**
 
----
-
-## 🧠 Models & Data Selection
-
-1. **Audio Inference Model**: `Qwen/Qwen2-Audio-7B-Instruct` (A multimodal audio-language model capable of natively processing audio waveforms).
-2. **Judge Evaluator Model**: `Qwen/Qwen3.8-27B-FP8` (LLM-as-a-judge to evaluate generated diagnoses).
-3. **Dataset**: **ICBHI 2017 Respiratory Sound Database** (`DynamicSuperb/RespiratorySoundClassification_ICBHI2017`), capturing stethoscope audio of healthy subjects and patients with diseases like COPD, Bronchiectasis, and Pneumonia.
-
-> **Note**: The `ICBHI 2017 Respiratory Sound Database` is not mentioned in the `Qwen2-Audio-7B-Instruct` technical report, which guarantees it serves as a true out-of-distribution (OOD) test set for evaluating zero-shot/few-shot reasoning without risk of data contamination.
+| | |
+|---|---|
+| **Course** | Digital Speech Processing |
+| **Lecturer** | Prof. Sharon Ganot |
+| **Institution** | Bar-Ilan University, Faculty of Engineering |
+| **Semester** | Fall 2026 |
 
 ---
 
-## 🎧 Dataset Overview & Evaluation Subset
+## Summary
 
-The full HuggingFace benchmark consists of only 174 audio samples. Because we needed to preserve uncontaminated "unused room" to act as few-shot examples (ensuring the model was never evaluated on the same audio it was prompted with), we ran our pipeline on a subset of **exactly 100 samples**.
+Audio-language models answer questions about recordings, but it is rarely measured whether they use the
+**sound** or only the **words** spoken in it. We test five open models of 3B to 32B parameters on two lanes:
 
-Using stratified random sampling (excluding the statistically negligible Asthma and LRTI outliers), we constructed an evaluation subset that perfectly mirrors the natural imbalance of the full dataset:
+- **In-Knowledge:** 199 English-speech questions from **MMAR**, the kind of audio the models were trained on.
+- **Out-of-Knowledge:** 168 lung-sound recordings from **ICBHI 2017**, a domain none of them saw.
 
-| Disease Class | Full Dataset (174) % | Our Subset (100) % |
-| :--- | :--- | :--- |
-| **COPD** | 34.5% | 35.0% |
-| **Healthy** | 20.1% | 20.0% |
-| **Pneumonia** | 13.8% | 14.0% |
-| **URTI** | 13.2% | 14.0% |
-| **Bronchiectasis** | 9.2% | 9.0% |
-| **Bronchiolitis** | 7.5% | 8.0% |
+A text-only model reading a Whisper transcript splits the MMAR questions into **143 transcript-solvable**
+and **56 audio-dependent** ones, so *reading the words* and *hearing the sound* are measured separately.
+Each model is tested with about **24 prompting techniques** (chain-of-thought, transcripts, acoustic
+evidence, few-shot and retrieved examples, audio presentation, calibrated scoring, option voting) plus a
+control that removes the sound but keeps the transcript.
 
+### Key findings
 
----
+1. **Model choice matters more than prompting.** Baselines span 17.6 points; the best technique adds at
+   most 7.5; no prompting gain survives Holm correction (the only two effects that do are losses).
+2. **Bigger is better within a family, not across families.** Qwen2.5-Omni-7B ties Voxtral-Small-24B; the
+   largest model (Step-Audio-R1.1, 32B) does not beat Qwen3-Omni (~3B active parameters per token).
+3. **Size buys reading, not hearing.** Step-Audio-R1.1 reads best (88.1%) and hears at chance (37.5%).
+4. **Hearing follows how the audio encoder was trained.** Only the two Qwen models hear above chance;
+   removing the sound takes the best listener, Qwen3-Omni, to chance.
+5. **The audio does not hurt reading; written text hurts hearing.** Adding transcripts or measured
+   acoustics to a model that already hears costs it up to 14 points on audio-dependent questions.
+6. **On unfamiliar audio every model fails.** No model and no technique extracts a diagnosis from lung
+   sounds; the models fall back on answer priors and on words in the prompt.
 
-## ⚙️ Experimental Setup & Metrics
+| Model | Overall | Reading the words | Hearing the sound |
+|---|---|---|---|
+| Voxtral-Mini-3B | 59.3 | 73.4 | 23.2 (below chance) |
+| Qwen2.5-Omni-7B | 65.8 | 73.4 | 46.4 |
+| Voxtral-Small-24B | 65.8 | 75.5 | 41.1 |
+| Qwen3-Omni-30B-A3B | **76.9** | 87.4 | **50.0** |
+| Step-Audio-R1.1 | 73.9 | **88.1** | 37.5 |
 
-**Hardware**: NVIDIA RTX PRO 6000 Blackwell (96 GB VRAM), single GPU
+*MMAR baseline accuracy (%), majority of three runs. Chance: 32.0% overall, 33.2% on hearing questions.*
 
-### Deterministic Sampling
-To maximize the likelihood that the Audio-Language Model strictly respects our complex prompt guardrails (e.g., Honesty clauses, Base Rates), we explicitly disabled probabilistic sampling. The ALM runs with **Greedy Decoding (`do_sample=False`)**, ensuring it always takes the highest-probability logical path rather than "creatively" deviating and hallucinating.
+![Words vs sound](insights/report/figures/fig_words_vs_sound.png)
 
-### Custom Grading Metrics (LLM-as-a-Judge)
-Because respiratory audio classification via LLMs produces generative text rather than strict logits, we developed three custom metrics evaluated by a 27B parameter judge:
-1. **Acoustic Accuracy**: Did the model correctly detect and describe the *acoustic features* (e.g., crackles, wheezes)?
-2. **Diagnostic Accuracy**: Did the model correctly deduce the final *patient disease* (e.g., COPD)?
-3. **Hallucination Rate**: Did the model "hallucinate" sounds not present in the audio to justify a guess?
+![Model scaling](insights/report/figures/fig_scaling.png)
 
----
-
-## 🧪 The Prompt Engineering Journey
-
-We ran 12 distinct experiments. Below are the core milestones highlighting our progression:
-
-### 🔴 V1: Baseline
-* **Rationale**: Establish a zero-shot baseline. How well does the model perform out-of-the-box?
-* **Prompt**: `Detect the disease in this lung sound audio.`
-* **Results**: Acoustic Acc: **12.5%** | Diagnostic Acc: **27.2%** | Hallucination: **24.0%**
-
-### 🔴 V3: Symptoms Dictionary
-* **Rationale**: Let's inject a clinical symptom dictionary (fever, cough).
-* **Results**: Acoustic Acc: **13.7%** | Diagnostic Acc: **7.8%** | Hallucination: **88.0%**
-* **Failure**: The model began hallucinating *clinical text* directly from the raw stethoscope audio!
-
-### 🟡 V5: Acoustic Dictionary & Chain-of-Thought
-* **Rationale**: Replace textual symptoms with *Acoustic Signatures*. Force the model to describe the audio step-by-step (CoT) before guessing.
-* **Results**: Acoustic Acc: **52.7%** | Diagnostic Acc: **37.0%** | Hallucination: **56.0%**
-* **Breakthrough**: Grounding reasoning in audio signatures massively boosted accuracy.
-
-### 🟢 V10: The Holy Grail (Authentic Few-Shot Holistic)
-* **Rationale**: The "Kitchen Sink". We combined a **Holistic Dictionary** (Clinical + Acoustic separation), **Chain-of-Thought**, and **True Multimodal Few-Shot** (injecting 6 real `.wav` tensors representing every target class directly into the context window).
-* **Results**: 
-    - Acoustic Acc: **64.0%** (5.12x improvement)
-    - Diagnostic Acc: **60.0%** (2.21x improvement)
-    - Hallucination: **35.0%** (1.46x DEGRADATION from Baseline)
+The report also lists **what not to do** (e.g. chain-of-thought on small non-reasoning models: −13.1
+points) and proposes a **late-fusion** design of a listener and a reader, whose upper bound is 83–86%
+against 76.9% for the best single model.
 
 ---
 
-## 📊 Results Comparison & The Hallucination Tradeoff
+## Models and data
 
+| Role | Model / dataset |
+|---|---|
+| Audio-language models | Voxtral-Mini-3B-2507, Qwen2.5-Omni-7B, Voxtral-Small-24B-2507, Qwen3-Omni-30B-A3B-Instruct, Step-Audio-R1.1 |
+| Text-only control | Gemma-4-26B-A4B-it |
+| LLM judge (secondary metric) | Qwen3.8-27B-FP8 |
+| Evidence extraction | Whisper-large-v3 (transcripts), pyannote speaker-diarization-3.1, AST (AudioSet tagger), LAION CLAP and LCO-Embedding-Omni-7B (retrieval) |
+| Datasets | MMAR (English-speech subset, 199 questions); ICBHI 2017 (168 evaluation recordings) |
 
-### Experiment Comparison Table
-## Experiment Comparisons
+## Hardware and software
 
-| Experiment | Acoustic Acc | Diagnostic Acc | Hallucination Rate | Overall Score |
-| :--- | :--- | :--- | :--- | :--- |
-| `baseline` | 12.5% (1.00x) | 27.2% (1.00x) | **24.0% (1.00x)** | 38.6% (1.00x) |
-| `format_strict` | 0.0% (0.00x) | 0.0% (0.00x) | 36.0% (1.50x) | 21.3% (0.55x) |
-| `symptoms_dict` | 13.7% (1.10x) | 7.8% (0.29x) | 88.0% (3.67x) | 11.2% (0.29x) |
-| `acoustic_dict` | 42.5% (3.40x) | 23.2% (0.85x) | 63.0% (2.62x) | 34.2% (0.89x) |
-| `cot` | 52.7% (4.22x) | 37.0% (1.36x) | 56.0% (2.33x) | 44.6% (1.16x) |
-| `few_shot` | 29.5% (2.36x) | 6.2% (0.23x) | 82.0% (3.42x) | 17.9% (0.46x) |
-| `cot_and_few_shot` | 38.0% (3.04x) | 15.8% (0.58x) | 81.0% (3.38x) | 24.3% (0.63x) |
-| `authentic_few_shot` | 54.0% (4.32x) | 11.8% (0.43x) | 35.0% (1.46x) | 43.6% (1.13x) |
-| `authentic_few_shot_holistic` | **64.0% (5.12x)** | **60.0% (2.21x)** | 35.0% (1.46x) | **63.0% (1.63x)** |
-| `authentic_few_shot_no_guardrails` | 52.0% (4.16x) | 0.0% (0.00x) | 35.0% (1.46x) | 39.0% (1.01x) |
+- **Hardware:** one NVIDIA RTX PRO 6000 Blackwell Server Edition GPU (96 GB VRAM). BF16 weights, which caps
+  the models at about 32B parameters.
+- **Inference:** [vLLM](https://github.com/vllm-project/vllm) (in-process for four models; Step-Audio-R1.1
+  served through StepFun's vLLM build over an OpenAI-compatible HTTP API).
+- **Environment:** Python 3.12, managed with [uv](https://github.com/astral-sh/uv); pandas, NumPy, SciPy,
+  Matplotlib for analysis; Pydantic configuration; pytest and ruff.
+- **Runs:** Google Colab with the GPU above; results written to Google Drive and copied into `data/`.
 
+## Repository layout
 
-### Metric Progression Scatter Plots
-![Comparison Plots](assets/comparison_scatter_plots.png)
+| Path | Contents |
+|---|---|
+| `src/speech_processing/` | pipeline: data loading, audio engines, prompts, scoring, statistics |
+| `src/speech_processing/runners/` | experiment definitions (`mmar.py`, `icbhi.py`) |
+| `main.py` | entry point |
+| `scripts/` | evidence extraction, analysis, report tables and figures |
+| `data/` | raw outputs of every run (`speech-processing-res-*`) |
+| `insights/report/` | the report in Markdown, its data tables and figures |
+| `insights/*_ANALYSIS.md` | detailed per-dataset and cross-model analyses (appendices) |
+| `tests/` | unit and integration tests |
 
-### The Hallucination Tradeoff
+## Reproducing
 
-While V10 massively improved diagnostic accuracy (2.21x) and acoustic accuracy (5.12x), **we did not beat the baseline Hallucination Rate** (35% vs 24%). 
-* **Why?** In the V1 baseline, the model blindly guessed classes without describing any sounds, thus dodging the hallucination penalty. When we added Chain-of-Thought (forcing it to describe sounds), the hallucination rate spiked. 
-* **The Failed Fix (V12)**: We tried to fix this in V12 by adding an "Honesty Clause" (`Do NOT invent or hallucinate sounds... if unsure, explicitly state it`). However, the metrics didn't budge. We discovered that **In-Context Learning overwrote the written prompt**—because the model saw absolute confidence in the few-shot examples, it mimicked that confidence, completely ignoring the honesty instruction.
+```bash
+uv sync                                                    # install (vLLM installs on Linux only)
+uv run python main.py --dataset mmar --experiment v1 \
+    --sample-ids-file data/mmar_en_speech_test_ids.txt --runs 3 --output-dir results/mmar
+uv run python main.py --dataset icbhi --experiment r0 --runs 3 --output-dir results/icbhi
+uv run python main.py --dataset mmar --experiment v1 --audio-model-id Qwen/Qwen3-Omni-30B-A3B-Instruct \
+    --sample-ids-file data/mmar_en_speech_test_ids.txt --runs 3 --output-dir results/mmar_qwen3
+
+uv run python scripts/build_report_data.py       # run folders in data/ -> insights/report/data/*.csv
+uv run python scripts/build_report_figures.py    # tables -> insights/report/figures/*.png
+uv run pytest                                    # tests
+```
+
+The MMAR id files (`mmar_en_speech_test_ids.txt`, `mmar_en_speech_few_shot_ids.txt`) are not committed.
 
 ---
 
-## 🎯 Future Work
+## References
 
-1. **Scaling to Larger Datasets**: Because we required uncontaminated 'unused room' for our few-shot examples, we were mathematically constrained to evaluating on a subset of the 174 total samples available in the `DynamicSuperb` benchmark. Future iterations must identify significantly larger OOD evaluation datasets to solidify statistical significance.
-2. **Bias & Few-Shot Ordering**: Our V10 prompt uses exactly 6 few-shot examples injected in a static order. Because LLMs are sensitive to few-shot ordering, this almost certainly introduces a positional bias. Future experiments should randomly shuffle the order of few-shot examples to measure the exact effect on prediction bias.
-3. **Retrieval-Augmented Few-Shot (RAG)**: Implement dynamic few-shot retrieval where we use a vector database to find the top-K most semantically similar examples to the current test sample (e.g., matching the question text or the audio embeddings) and inject them dynamically. This prevents the systemic positional/semantic bias introduced by static few-shot examples.
-4. **Dynamic Contrastive Profiling (Two-Stage Audio RAG)**: Rather than trying to cram all possible disease comparisons into a single prompt (which biases the model or explodes VRAM), split inference into two turns. Turn 1 (Zero-Shot) nominates 2-3 suspected candidate diseases. Turn 2 fetches specific contrastive audio pairs for those candidates and asks the model to compare them to the patient's audio for a final decision.
-5. **Fine-Tuning**: Freeze the LLM and parameter-efficiently fine-tune (LoRA) the audio encoder explicitly on stethoscope spectrograms to try and lower the 35% CoT hallucination floor.
-6. **Hyperparameter Tuning per Prompting Technique**: Currently, the audio model uses a static generation configuration (its factory defaults: `temperature=0.7`, `top_p=0.5`) across all experiments. However, different prompting techniques require different sampling strategies. Future work should dynamically tune hyperparameters per technique: e.g., using strict greedy decoding (`temperature=0.0`) for Direct Zero-Shot answering, while using higher temperatures for Chain-of-Thought (CoT) to allow diverse reasoning paths. This could easily be combined with our N-runs Stability Analyzer to implement **Self-Consistency Decoding** (taking the majority vote of N high-temperature CoT runs).
-7. **Scaling to Larger ALMs**: Evaluate larger, state-of-the-art Audio-Language Models (e.g., `mistralai/Voxtral-Small-24B-2507`). A larger parameter count in the audio encoder and the reasoning layers may naturally bridge some of the modality gap observed in the 7B model.
-8. **Quantization Impact on Acoustic Reasoning**: Investigate the effect of weight quantization (e.g., FP8, INT4) on the ALM's zero-shot acoustic capabilities. While text LLMs are notoriously resilient to quantization, degrading the precision of the audio encoder's continuous latent space might have disproportionate effects on fine-grained acoustic feature extraction (like detecting subtle crackles).
-9. **Top-Down Semantic Injection**: Test a two-step prompt architecture where a strong text-only LLM pre-processes clinical priors to synthesize a highly loaded "search query" (e.g., *"Listen specifically for early coarse crackles"*). Passing this to the ALM might force its attention mechanism to locate latent features that it would otherwise ignore in a pure zero-shot setting.
+1. Z. Ma et al. **MMAR: A Challenging Benchmark for Deep Reasoning in Speech, Audio, Music, and Their Mix.** NeurIPS 2025 Datasets and Benchmarks Track. arXiv:2505.13032.
+2. B. M. Rocha et al. **An open access database for the evaluation of respiratory sound classification algorithms.** *Physiological Measurement* 40(3):035001, 2019.
+3. A. Radford et al. **Robust Speech Recognition via Large-Scale Weak Supervision.** ICML 2023.
+4. A. H. Liu et al. **Voxtral.** arXiv:2507.13264, 2025.
+5. J. Xu et al. **Qwen2.5-Omni Technical Report.** arXiv:2503.20215, 2025.
+6. J. Xu et al. **Qwen3-Omni Technical Report.** arXiv:2509.17765, 2025.
+7. F. Tian et al. **Step-Audio-R1 Technical Report.** arXiv:2511.15848, 2025.
+8. Gemma Team. **Gemma 4 Technical Report.** arXiv:2607.02770, 2026.
+9. W. Kwon et al. **Efficient Memory Management for Large Language Model Serving with PagedAttention.** SOSP 2023.
+10. A. Plaquet, H. Bredin. **Powerset multi-class cross entropy loss for neural speaker diarization.** Interspeech 2023.
+11. H. Bredin. **pyannote.audio 2.1 speaker diarization pipeline: principle, benchmark, and recipe.** Interspeech 2023.
+12. Y. Gong, Y.-A. Chung, J. Glass. **AST: Audio Spectrogram Transformer.** Interspeech 2021.
+13. Y. Wu et al. **Large-scale Contrastive Language-Audio Pretraining with Feature Fusion and Keyword-to-Caption Augmentation.** ICASSP 2023.
+14. C. Xiao et al. **Scaling Language-Centric Omnimodal Representation Learning.** arXiv:2510.11693, 2025.
+15. Q. McNemar. **Note on the Sampling Error of the Difference Between Correlated Proportions or Percentages.** *Psychometrika* 12(2):153–157, 1947.
+16. S. Holm. **A Simple Sequentially Rejective Multiple Test Procedure.** *Scandinavian Journal of Statistics* 6(2):65–70, 1979.
+17. Qwen Team. **Qwen3.8-Max: A New Bar for Coding and Cowork.** Blog post, 2026 (model: Qwen/Qwen3.8-27B-FP8).
+
+<details>
+<summary><b>BibTeX</b></summary>
+
+```bibtex
+@inproceedings{ma2025mmar,
+  title     = {{MMAR}: A Challenging Benchmark for Deep Reasoning in Speech, Audio, Music, and Their Mix},
+  author    = {Ma, Ziyang and Ma, Yinghao and Zhu, Yanqiao and Yang, Chen and Chao, Yi-Wen and Xu, Ruiyang and Chen, Wenxi and Chen, Yuanzhe and Chen, Zhuo and Cong, Jian and Li, Kai and Li, Keliang and Li, Siyou and Li, Xinfeng and Li, Xiquan and Lian, Zheng and Liang, Yuzhe and Liu, Minghao and Niu, Zhikang and Wang, Tianrui and Wang, Yuping and Wang, Yuxuan and Wu, Yihao and Yang, Guanrou and Yu, Jianwei and Yuan, Ruibin and Zheng, Zhisheng and Zhou, Ziya and Zhu, Haina and Xue, Wei and Benetos, Emmanouil and Yu, Kai and Chng, Eng-Siong and Chen, Xie},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS), Datasets and Benchmarks Track},
+  volume    = {38},
+  doi       = {10.52202/085713-2252},
+  year      = {2025},
+  note      = {arXiv:2505.13032}
+}
+
+@article{rocha2019icbhi,
+  title   = {An open access database for the evaluation of respiratory sound classification algorithms},
+  author  = {Rocha, Bruno M. and Filos, Dimitris and Mendes, Lu{\'i}s and Serbes, Gorkem and Ulukaya, Sezer and Kahya, Yasemin P. and Jakovljevi{\'c}, Nik{\v{s}}a and Turukalo, Tatjana Lon{\v{c}}ar and Vogiatzis, Ioannis M. and Perantoni, Eleni and Kaimakamis, Evangelos and Natsiavas, Pantelis and Oliveira, Ana and J{\'a}come, Cristina and Marques, Alda and Maglaveras, Nicos and Paiva, Rui Pedro and Chouvarda, Ioanna and de Carvalho, Paulo},
+  journal = {Physiological Measurement},
+  volume  = {40},
+  number  = {3},
+  pages   = {035001},
+  year    = {2019},
+  doi     = {10.1088/1361-6579/ab03ea}
+}
+
+@inproceedings{radford2023whisper,
+  title     = {Robust Speech Recognition via Large-Scale Weak Supervision},
+  author    = {Radford, Alec and Kim, Jong Wook and Xu, Tao and Brockman, Greg and McLeavey, Christine and Sutskever, Ilya},
+  booktitle = {Proceedings of the 40th International Conference on Machine Learning},
+  pages     = {28492--28518},
+  year      = {2023},
+  volume    = {202},
+  series    = {Proceedings of Machine Learning Research},
+  publisher = {PMLR}
+}
+
+@misc{liu2025voxtral,
+  title         = {Voxtral},
+  author        = {Liu, Alexander H. and Ehrenberg, Andy and Lo, Andy and others},
+  year          = {2025},
+  eprint        = {2507.13264},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.SD}
+}
+
+@misc{xu2025qwen25omni,
+  title         = {Qwen2.5-Omni Technical Report},
+  author        = {Jin Xu and Zhifang Guo and Jinzheng He and Hangrui Hu and Ting He and Shuai Bai and Keqin Chen and Jialin Wang and Yang Fan and Kai Dang and Bin Zhang and Xiong Wang and Yunfei Chu and Junyang Lin},
+  year          = {2025},
+  eprint        = {2503.20215},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL}
+}
+
+@misc{xu2025qwen3omni,
+  title         = {Qwen3-Omni Technical Report},
+  author        = {Xu, Jin and Guo, Zhifang and Hu, Hangrui and others},
+  year          = {2025},
+  eprint        = {2509.17765},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL}
+}
+
+@misc{tian2025stepaudior1,
+  title         = {Step-Audio-R1 Technical Report},
+  author        = {Fei Tian and Xiangyu Tony Zhang and Yuxin Zhang and Haoyang Zhang and Yuxin Li and Daijiao Liu and Yayue Deng and Donghang Wu and Jun Chen and Liang Zhao and Chengyuan Yao and Hexin Liu and Eng Siong Chng and Xuerui Yang and Xiangyu Zhang and Daxin Jiang and Gang Yu},
+  year          = {2025},
+  eprint        = {2511.15848},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+@misc{gemmateam2026gemma4,
+  title         = {Gemma 4 Technical Report},
+  author        = {{Gemma Team}},
+  year          = {2026},
+  eprint        = {2607.02770},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL}
+}
+
+@inproceedings{kwon2023efficient,
+  title     = {Efficient Memory Management for Large Language Model Serving with PagedAttention},
+  author    = {Woosuk Kwon and Zhuohan Li and Siyuan Zhuang and Ying Sheng and Lianmin Zheng and Cody Hao Yu and Joseph E. Gonzalez and Hao Zhang and Ion Stoica},
+  booktitle = {Proceedings of the ACM SIGOPS 29th Symposium on Operating Systems Principles},
+  year      = {2023}
+}
+
+@inproceedings{plaquet2023powerset,
+  author    = {Alexis Plaquet and Herv{\'e} Bredin},
+  title     = {{Powerset multi-class cross entropy loss for neural speaker diarization}},
+  booktitle = {Proc. INTERSPEECH 2023},
+  pages     = {3222--3226},
+  year      = {2023},
+  doi       = {10.21437/Interspeech.2023-205}
+}
+
+@inproceedings{bredin2023pyannote,
+  author    = {Herv{\'e} Bredin},
+  title     = {{pyannote.audio 2.1 speaker diarization pipeline: principle, benchmark, and recipe}},
+  booktitle = {Proc. INTERSPEECH 2023},
+  pages     = {1983--1987},
+  year      = {2023},
+  doi       = {10.21437/Interspeech.2023-105}
+}
+
+@inproceedings{gong2021ast,
+  author    = {Yuan Gong and Yu-An Chung and James Glass},
+  title     = {{AST: Audio Spectrogram Transformer}},
+  booktitle = {Proc. Interspeech 2021},
+  pages     = {571--575},
+  year      = {2021},
+  doi       = {10.21437/Interspeech.2021-698}
+}
+
+@inproceedings{wu2023clap,
+  title     = {Large-scale Contrastive Language-Audio Pretraining with Feature Fusion and Keyword-to-Caption Augmentation},
+  author    = {Wu, Yusong and Chen, Ke and Zhang, Tianyu and Hui, Yuchen and Berg-Kirkpatrick, Taylor and Dubnov, Shlomo},
+  booktitle = {IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
+  pages     = {1--5},
+  year      = {2023},
+  doi       = {10.1109/ICASSP49357.2023.10095969}
+}
+
+@article{xiao2025scaling,
+  title   = {Scaling Language-Centric Omnimodal Representation Learning},
+  author  = {Xiao, Chenghao and Chan, Hou Pong and Zhang, Hao and Xu, Weiwen and Aljunied, Mahani and Rong, Yu},
+  journal = {arXiv preprint arXiv:2510.11693},
+  year    = {2025}
+}
+
+@article{mcnemar1947,
+  title   = {Note on the Sampling Error of the Difference Between Correlated Proportions or Percentages},
+  author  = {McNemar, Quinn},
+  journal = {Psychometrika},
+  volume  = {12},
+  number  = {2},
+  pages   = {153--157},
+  year    = {1947},
+  doi     = {10.1007/BF02295996}
+}
+
+@article{holm1979,
+  title   = {A Simple Sequentially Rejective Multiple Test Procedure},
+  author  = {Holm, Sture},
+  journal = {Scandinavian Journal of Statistics},
+  volume  = {6},
+  number  = {2},
+  pages   = {65--70},
+  year    = {1979},
+  url     = {https://www.jstor.org/stable/4615733}
+}
+
+@misc{qwen38,
+  title  = {{Qwen3.8-Max}: A New Bar for Coding and Cowork},
+  author = {{Qwen Team}},
+  url    = {https://qwen.ai/blog?id=qwen3.8},
+  month  = {August},
+  year   = {2026}
+}
+```
+
+</details>
